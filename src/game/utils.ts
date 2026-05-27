@@ -22,6 +22,19 @@ export function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function deepMerge<T extends JsonObj>(base: T, override: JsonObj): T {
+  const target = base as JsonObj;
+  for (const [key, value] of Object.entries(override)) {
+    if (isPlainObject(value) && isPlainObject(target[key])) deepMerge(target[key], value);
+    else target[key] = deepClone(value);
+  }
+  return base;
+}
+
+function isPlainObject(value: unknown): value is JsonObj {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -42,6 +55,18 @@ export function itemIcon(protoId: string): string {
 
 export function displayItemName(item: ItemInstance): string {
   return item.components.display?.name ?? item.protoId;
+}
+
+export function initEntityRuntimeState(entity: { components: JsonObj }): void {
+  entity.components.active_effects ??= {};
+  const resources = entity.components.resources;
+  if (resources && typeof resources === "object") {
+    for (const [key, value] of Object.entries(resources)) {
+      if (!key.startsWith("max_") || typeof value !== "number") continue;
+      const resourceKey = key.slice(4);
+      resources[resourceKey] ??= value;
+    }
+  }
 }
 
 export function initItemRuntimeState(item: ItemInstance): void {

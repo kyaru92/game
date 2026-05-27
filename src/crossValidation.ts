@@ -11,6 +11,7 @@ export interface CrossIndex {
   effectIds: string[];
   itemIds: string[];
   attributeIds: string[];
+  entityIds: string[];
 }
 
 export interface CrossValidationResult {
@@ -29,29 +30,39 @@ const runtimeSelectors = new Set(["@player", "@me", "@self", "@who", "@dummy"]);
 export function validateCrossReferences(
   effectModel: monaco.editor.ITextModel,
   itemModel: monaco.editor.ITextModel,
+  entityModel?: monaco.editor.ITextModel,
 ): CrossValidationResult {
   const effects = parseModel(effectModel);
   const items = parseModel(itemModel);
+  const entities = entityModel ? parseModel(entityModel) : undefined;
   const effectMarkers: monaco.editor.IMarkerData[] = [];
   const itemMarkers: monaco.editor.IMarkerData[] = [];
+  const entityMarkers: monaco.editor.IMarkerData[] = [];
 
   const effectIds = collectRootKeys(effects.root).sort();
   const itemIds = collectRootKeys(items.root).sort();
+  const entityIds = collectRootKeys(entities?.root).sort();
   const effectIdSet = new Set(effectIds);
+  const entityIdSet = new Set(entityIds);
 
   validateEffects(effects, effectMarkers);
-  validateItems(items, itemMarkers, effectIdSet, effects.root);
+  validateItems(items, itemMarkers, effectIdSet, entityIdSet, effects.root);
+  if (entities) validateEntities(entities, entityMarkers);
+
+  const markers = new Map([
+    [effectModel.uri.toString(), effectMarkers],
+    [itemModel.uri.toString(), itemMarkers],
+  ]);
+  if (entityModel) markers.set(entityModel.uri.toString(), entityMarkers);
 
   return {
     index: {
       effectIds,
       itemIds,
+      entityIds,
       attributeIds: [...ATTRIBUTE_IDS],
     },
-    markers: new Map([
-      [effectModel.uri.toString(), effectMarkers],
-      [itemModel.uri.toString(), itemMarkers],
-    ]),
+    markers,
   };
 }
 
@@ -137,6 +148,7 @@ function validateItems(
   parsed: ParsedModel,
   markers: monaco.editor.IMarkerData[],
   effectIdSet: Set<string>,
+  entityIdSet: Set<string>,
   effectRoot?: JsonNode,
 ): void {
   const root = parsed.root;
@@ -154,15 +166,16 @@ function validateItems(
     const effectApplier = findNodeAtLocation(components, ["effect_applier"]);
     const targeting = findNodeAtLocation(components, ["targeting"]);
     const teleporter = findNodeAtLocation(components, ["teleporter"]);
+    const entitySpawner = findNodeAtLocation(components, ["entity_spawner"]);
     const targetingModeNode = targeting ? findNodeAtLocation(targeting, ["mode"]) : undefined;
     const targetingMode = targetingModeNode ? getNodeValue(targetingModeNode) : "self";
 
-    if (activation && !effectApplier && !teleporter) {
+    if (activation && !effectApplier && !teleporter && !entitySpawner) {
       markers.push(
         marker(
           parsed.model,
           activation,
-          `"${itemId}" 有 activation，但目前没有任何已知激活监听组件（effect_applier/teleporter）。`,
+          `"${itemId}" 有 activation，但目前没有任何已知激活监听组件（effect_applier/teleporter/entity_spawner）。`,
           monaco.MarkerSeverity.Warning,
         ),
       );
@@ -212,7 +225,7 @@ function validateItems(
 
       if (typeof kind === "string" && effectIdSet.has(kind) && effectRoot) {
         const effectDuration = findNodeAtLocation(effectRoot, [kind, "durationMs"]);
-        const overrideDuration = findNodeAtLocation(applier, ["overrideDurationMs"]);
+        const overrideDuration = findNodeAtLocation(applier, ["overrides", "durationMs"]);
         if (effectDuration && overrideDuration) {
           const durationValue = getNodeValue(effectDuration);
           const overrideValue = getNodeValue(overrideDuration);
@@ -221,12 +234,25 @@ function validateItems(
               marker(
                 parsed.model,
                 overrideDuration,
-                `"${kind}" 默认是永久效果，但该 applier 用 overrideDurationMs 把它改成了限时效果。`,
+                `"${kind}" 默认是永久效果，但该 applier 用 overrides.durationMs 把它改成了限时效果。`,
                 monaco.MarkerSeverity.Hint,
               ),
             );
           }
         }
+      }
+    }
+
+    if (entitySpawner) {
+      if (targetingMode !== "position") {
+        markers.push(
+          marker(parsed.model, entitySpawner, `entity_spawner 需要 targeting.mode="position"，当前为 "${targetingMode}"。`),
+        );
+      }
+      const prototypeNode = findNodeAtLocation(entitySpawner, ["prototype"]);
+      const prototype = prototypeNode ? getNodeValue(prototypeNode) : undefined;
+      if (typeof prototype === "string" && entityIdSet.size > 0 && !entityIdSet.has(prototype)) {
+        markers.push(marker(parsed.model, prototypeNode, `entity_spawner.prototype 引用了不存在的 entity prototype："${prototype}"。`));
       }
     }
 
@@ -239,6 +265,51 @@ function validateItems(
       const targetNode = findNodeAtLocation(teleporter, ["target"]);
       if (targetNode && getNodeValue(targetNode) !== "activation_target") {
         markers.push(marker(parsed.model, targetNode, `teleporter.target 目前只支持 "activation_target"。`));
+      }
+    }
+  }
+}
+
+function validateEntities(parsed: ParsedModel, markers: monaco.editor.IMarkerData[]): void {
+  const root = parsed.root;
+  if (!root || root.type !== "object") return;
+  const knownAttributes = new Set(ATTRIBUTE_IDS);
+
+  for (const prop of properties(root)) {
+    const entityId = propKey(prop) ?? "<unknown>";
+    const entity = propValue(prop);
+    if (!entity || entity.type !== "object") continue;
+    const components = findNodeAtLocation(entity, ["components"]);
+    if (!components || components.type !== "object") continue;
+
+    for (const runtimeName of ["active_effects", "casting", "_deathLogged"]) {
+      const runtimeComponent = findNodeAtLocation(components, [runtimeName]);
+      if (runtimeComponent) {
+        markers.push(
+          marker(
+            parsed.model,
+            runtimeComponent,
+            `${runtimeName} 是运行时状态，通常不建议写在 entity prototype "${entityId}" 中。`,
+            monaco.MarkerSeverity.Hint,
+          ),
+        );
+      }
+    }
+
+    const attributes = findNodeAtLocation(components, ["attributes"]);
+    if (attributes?.type === "object") {
+      for (const attrProp of properties(attributes)) {
+        const attr = propKey(attrProp);
+        if (attr && !knownAttributes.has(attr as any)) {
+          markers.push(
+            marker(
+              parsed.model,
+              attrProp.children?.[0],
+              `未知属性 "${attr}"。MVP 当前已知属性：${ATTRIBUTE_IDS.join(", ")}。`,
+              monaco.MarkerSeverity.Warning,
+            ),
+          );
+        }
       }
     }
   }

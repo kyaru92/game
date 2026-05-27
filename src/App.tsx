@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import effectText from "../effect.jsonc?raw";
+import entityText from "../entity.jsonc?raw";
 import itemText from "../item.jsonc?raw";
 import {
   cooldownRemainingMs,
@@ -43,7 +44,7 @@ interface CommandSuggestion {
 const COMMAND_SUGGESTIONS: CommandSuggestion[] = [
   { label: "help", insert: "help", description: "显示所有指令和示例" },
   { label: "entities", insert: "entities", description: "列出当前世界里的实体" },
-  { label: "spawn", insert: 'spawn slime 史莱姆 6 6 {"resources":{"hp":25,"max_hp":25},"attributes":{"move_speed":70}}', description: "生成带自定义 components 的实体" },
+  { label: "spawn", insert: 'spawn hatched-monster slime_1 6 6 {"resources":{"hp":50,"max_hp":50}}', description: "按 entity prototype 生成实体，可附加 overrides" },
   { label: "component", insert: 'component slime ai {"state":"patrol","range":5}', description: "给实体写入/覆盖自定义 component" },
   { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"max":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
   { label: "give", insert: "give @player poison-cloud-grenade", description: "给予已有 item.jsonc 物品" },
@@ -54,7 +55,7 @@ const COMMAND_SUGGESTIONS: CommandSuggestion[] = [
 ];
 
 export default function App() {
-  const runtime = useMemo<GameRuntime>(() => createGameRuntime(effectText, itemText), []);
+  const runtime = useMemo<GameRuntime>(() => createGameRuntime(effectText, itemText, entityText), []);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
@@ -335,7 +336,7 @@ export default function App() {
               onBlur={() => window.setTimeout(() => setCommandFocused(false), 120)}
               onKeyDown={handleCommandKeyDown}
               onChange={(event) => setCommandLine(event.target.value)}
-              placeholder='help / spawn slime 史莱姆 6 6 {"resources":{"hp":25,"max_hp":25}} / item @player debug {"display":{"name":"调试物品"}}'
+              placeholder='help / spawn hatched-monster slime_1 6 6 {"resources":{"hp":50,"max_hp":50}} / item @player debug {"display":{"name":"调试物品"}}'
             />
             {showSuggestions && (
               <div className="command-suggestions">
@@ -629,9 +630,10 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   });
   context.globalAlpha = 1;
 
+  const display = entity.components.display ?? {};
   const isPlayer = entity.entityId === "player";
-  context.fillStyle = isPlayer ? "#38bdf8" : "#f87171";
-  context.strokeStyle = isPlayer ? "#bae6fd" : "#fecaca";
+  context.fillStyle = display.color ?? (isPlayer ? "#38bdf8" : "#f87171");
+  context.strokeStyle = display.strokeColor ?? (isPlayer ? "#bae6fd" : "#fecaca");
   context.lineWidth = 3;
   context.beginPath();
   context.arc(center.x, center.y, radius, 0, Math.PI * 2);
@@ -642,7 +644,7 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   context.font = `700 ${Math.max(13, layout.cell * 0.22)}px Inter, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(isPlayer ? "P" : "D", center.x, center.y + 1);
+  context.fillText(String(display.glyph ?? (isPlayer ? "P" : "?")), center.x, center.y + 1);
 
   drawHealthBar(context, entity, center.x, center.y - radius - 14, layout.cell * 0.86);
   drawCastingRing(context, entity, center, radius + 2);

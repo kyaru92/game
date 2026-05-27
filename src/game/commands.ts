@@ -1,11 +1,11 @@
 import { parse } from "jsonc-parser";
-import type { Entity, GameRuntime, JsonObj } from "./types";
+import type { GameRuntime, JsonObj } from "./types";
 
 const COMMAND_HELP = [
   "指令：",
   "  help",
-  "  spawn <id> [name] [x y] [components-json]",
-  "    例：spawn slime 史莱姆 6 6 {\"resources\":{\"hp\":25,\"max_hp\":25},\"attributes\":{\"move_speed\":70}}",
+  "  spawn <entityProtoId> [entityId] [x y] [component-overrides-json]",
+  "    例：spawn hatched-monster slime_1 6 6 {\"resources\":{\"hp\":50,\"max_hp\":50}}",
   "  component <entity> <componentName> <json-value>   # 给实体写入/覆盖自定义 component",
   "    例：component slime ai {\"state\":\"patrol\",\"range\":5}",
   "  item <owner> <protoId> <components-json>          # 创建自定义 component 物品并放入背包",
@@ -79,37 +79,30 @@ export function executeCommand(runtime: GameRuntime, line: string): void {
 
 function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void {
   const world = runtime.world;
-  const id = normalizeId(tokens[1] ?? "entity");
-  if (!id) throw new Error("spawn 需要 entity id");
-  if (world.entities[id]) throw new Error(`实体已存在：${id}`);
+  const protoId = normalizeId(tokens[1] ?? "");
+  if (!protoId) throw new Error("用法：spawn <entityProtoId> [entityId] [x y] [component-overrides-json]");
+  if (!world.entityPrototypes[protoId]) throw new Error(`未知实体原型：${protoId}`);
 
   const jsonStart = findJsonStart(raw);
   const prefix = (jsonStart >= 0 ? raw.slice(0, jsonStart) : raw).trim().split(/\s+/);
-  const name = prefix[2] && !isNumber(prefix[2]) ? prefix[2] : id;
-  const xyStart = name === id ? 2 : 3;
-  const x = isNumber(prefix[xyStart]) ? Number(prefix[xyStart]) : findSpawnX(worldEntitiesPositions(runtime), runtime.world.gridWidth, runtime.world.gridHeight)[0];
-  const y = isNumber(prefix[xyStart + 1]) ? Number(prefix[xyStart + 1]) : findSpawnX(worldEntitiesPositions(runtime), runtime.world.gridWidth, runtime.world.gridHeight)[1];
+  const maybeEntityId = prefix[2] && !isNumber(prefix[2]) ? normalizeId(prefix[2]) : undefined;
+  if (maybeEntityId && world.entities[maybeEntityId]) throw new Error(`实体已存在：${maybeEntityId}`);
+  const xyStart = maybeEntityId ? 3 : 2;
+  const fallback = findSpawnX(worldEntitiesPositions(runtime), world.gridWidth, world.gridHeight);
+  const x = isNumber(prefix[xyStart]) ? Number(prefix[xyStart]) : fallback[0];
+  const y = isNumber(prefix[xyStart + 1]) ? Number(prefix[xyStart + 1]) : fallback[1];
   if (!world.isInside(x, y)) throw new Error("生成坐标超出地图");
 
   const overrides = jsonStart >= 0 ? parseJsonValue(raw.slice(jsonStart)) : {};
-  if (typeof overrides !== "object" || Array.isArray(overrides)) throw new Error("components-json 必须是对象");
+  if (typeof overrides !== "object" || Array.isArray(overrides)) throw new Error("component-overrides-json 必须是对象");
 
-  const entity: Entity = {
-    entityId: id,
-    name,
-    components: {
-      resources: { hp: 40, max_hp: 40 },
-      attributes: { move_speed: 60, attack_speed: 0.8 },
-      position: { x, y },
-      active_effects: {},
-      ...overrides,
-    },
-  };
-  entity.components.position ??= { x, y };
-  entity.components.active_effects ??= {};
-  world.addEntity(entity);
-  world.addBurst(id, "#38bdf8");
-  world.log(`生成实体：${id} / ${name} @(${entity.components.position.x},${entity.components.position.y})。`);
+  const entity = world.createEntity(protoId, {
+    entityId: maybeEntityId,
+    position: { x, y },
+    overrides: overrides as JsonObj,
+  });
+  world.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
+  world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${entity.components.position.x},${entity.components.position.y})。`);
 }
 
 function setComponent(runtime: GameRuntime, raw: string, tokens: string[]): void {

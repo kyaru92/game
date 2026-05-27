@@ -1,12 +1,20 @@
 import { EventBus } from "./eventBus";
 import type { Entity, ItemInstance, JsonObj, VisualEvent } from "./types";
-import { deepClone, displayItemName, initItemRuntimeState } from "./utils";
+import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState } from "./utils";
+
+export interface CreateEntityOptions {
+  entityId?: string;
+  name?: string;
+  position?: { x: number; y: number };
+  overrides?: JsonObj;
+}
 
 export class World {
   readonly gridWidth = 16;
   readonly gridHeight = 12;
   readonly effects: JsonObj;
   readonly itemPrototypes: JsonObj;
+  readonly entityPrototypes: JsonObj;
   readonly bus = new EventBus();
   readonly entities: Record<string, Entity> = {};
   readonly items: Record<string, ItemInstance> = {};
@@ -29,10 +37,12 @@ export class World {
 
   private nextItemNo = 1;
   private nextVisualNo = 1;
+  private nextEntityNo = 1;
 
-  constructor(effects: JsonObj, itemPrototypes: JsonObj) {
+  constructor(effects: JsonObj, itemPrototypes: JsonObj, entityPrototypes: JsonObj = {}) {
     this.effects = effects;
     this.itemPrototypes = itemPrototypes;
+    this.entityPrototypes = entityPrototypes;
   }
 
   nowMs(): number {
@@ -46,7 +56,29 @@ export class World {
   }
 
   addEntity(entity: Entity): void {
+    initEntityRuntimeState(entity);
     this.entities[entity.entityId] = entity;
+  }
+
+  createEntity(protoId: string, options: CreateEntityOptions = {}): Entity {
+    const proto = this.entityPrototypes[protoId];
+    if (!proto) throw new Error(`未知实体原型：${protoId}`);
+    const components = deepMerge(deepClone(proto.components ?? {}), options.overrides ?? {});
+    if (options.position) components.position = { x: options.position.x, y: options.position.y };
+    const entity: Entity = {
+      entityId: options.entityId ?? this.nextEntityId(protoId),
+      name: options.name ?? components.display?.name ?? proto.name ?? protoId,
+      components,
+    };
+    this.addEntity(entity);
+    return entity;
+  }
+
+  nextEntityId(prefix: string): string {
+    const normalized = normalizeEntityId(prefix) || "entity";
+    let id = `${normalized}-${this.nextEntityNo++}`;
+    while (this.entities[id]) id = `${normalized}-${this.nextEntityNo++}`;
+    return id;
   }
 
   removeEntity(entityId: string, reason = "消失"): void {
@@ -78,12 +110,13 @@ export class World {
       "@self": "player",
       "@who": "player",
       "@dummy": "dummy",
+      "@training-dummy": "dummy",
     };
     const alias = aliases[selector];
     if (alias && this.entities[alias]) return alias;
     if (this.entities[selector]) return selector;
     const lower = selector.toLowerCase();
-    return Object.values(this.entities).find((entity) => entity.name.toLowerCase() === lower)?.entityId;
+    return Object.values(this.entities).find((entity) => entity.name.toLowerCase() === lower || String(entity.components.display?.name ?? "").toLowerCase() === lower)?.entityId;
   }
 
   createItem(protoId: string): ItemInstance {
@@ -174,7 +207,7 @@ export class World {
       return false;
     }
     const other = this.entityAt(nextX, nextY);
-    if (other && other.entityId !== entityId) {
+    if (other && other.entityId !== entityId && other.components.collision?.blocksMovement !== false) {
       this.log(`${other.name} 挡住了去路。`);
       return false;
     }
@@ -231,4 +264,8 @@ export class World {
       durationMs: 700,
     });
   }
+}
+
+function normalizeEntityId(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
 }

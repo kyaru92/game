@@ -1,7 +1,6 @@
 import type { Entity, EventData, ItemInstance, JsonObj, Target } from "./types";
 import type { World } from "./world";
 import {
-  deepClone,
   displayItemName,
   describeTarget,
   effectColor,
@@ -155,7 +154,7 @@ export class EffectApplierSystem {
             targetEntityId,
             sourceEntityId: event.data.actorId,
             sourceItemId: item.instanceId,
-            overrideDurationMs: applier.overrideDurationMs,
+            effectOverrides: applier.overrides,
           });
         }
         continue;
@@ -176,7 +175,7 @@ export class EffectApplierSystem {
         targetEntityId: target.entityId,
         sourceEntityId: event.data.actorId,
         sourceItemId: item.instanceId,
-        overrideDurationMs: applier.overrideDurationMs,
+        effectOverrides: applier.overrides,
       });
     }
   }
@@ -240,22 +239,21 @@ export class EntitySpawnerSystem {
       return;
     }
 
-    const idPrefix = normalizeEntityId(String(spawner.idPrefix ?? item.protoId ?? "summon")) || "summon";
-    const entityId = nextEntityId(this.world, idPrefix);
-    const components = deepClone(spawner.components ?? {});
-    components.position = { ...(components.position ?? {}), x, y };
-    components.resources ??= { hp: 25, max_hp: 25 };
-    components.attributes ??= { move_speed: 55, attack_speed: 0.7 };
-    components.active_effects ??= {};
+    const prototype = String(spawner.prototype ?? spawner.entity ?? "");
+    if (!prototype) {
+      this.world.log(`${displayItemName(item)} 的 entity_spawner 缺少 prototype。`);
+      return;
+    }
 
-    const entity: Entity = {
-      entityId,
-      name: String(spawner.name ?? entityId),
-      components,
-    };
-    this.world.addEntity(entity);
-    this.world.addBurst(entityId, String(spawner.color ?? "#fb923c"));
-    this.world.addFloatingText(entityId, entity.name, String(spawner.color ?? "#fb923c"));
+    const entity = this.world.createEntity(prototype, {
+      entityId: spawner.entityId ? String(spawner.entityId) : undefined,
+      name: spawner.name ? String(spawner.name) : undefined,
+      position: { x, y },
+      overrides: spawner.overrides ?? {},
+    });
+    const color = String(spawner.color ?? entity.components.display?.color ?? "#fb923c");
+    this.world.addBurst(entity.entityId, color);
+    this.world.addFloatingText(entity.entityId, entity.name, color);
     this.world.log(`${this.world.entityName(String(event.data.actorId))} 使用 ${displayItemName(item)}，在 (${x},${y}) 生成 ${entity.name}。`);
   }
 }
@@ -271,11 +269,11 @@ export class EffectSystem {
       String(event.data.targetEntityId),
       event.data.sourceEntityId,
       event.data.sourceItemId,
-      event.data.overrideDurationMs,
+      event.data.effectOverrides,
     );
   }
 
-  applyEffect(effectId: string, targetEntityId: string, sourceEntityId?: string, sourceItemId?: string, overrideDurationMs?: number): void {
+  applyEffect(effectId: string, targetEntityId: string, sourceEntityId?: string, sourceItemId?: string, effectOverrides?: JsonObj): void {
     const definition = this.world.effects[effectId];
     if (!definition) {
       this.world.log(`未知效果：${effectId}`);
@@ -288,8 +286,7 @@ export class EffectSystem {
     }
     const effects = (target.components.active_effects ??= {});
     const now = this.world.nowMs();
-    const durationMs = Number(overrideDurationMs ?? definition.durationMs ?? -1);
-    const stacking = definition.stacking ?? {};
+    const durationMs = Number(effectOverrides?.durationMs ?? definition.durationMs ?? -1);    const stacking = definition.stacking ?? {};
     const behavior = String(stacking.overlapBehavior ?? "none");
     const maxStacks = Number(stacking.maxStacks ?? 1);
     const name = String(definition.name ?? effectId);
@@ -475,19 +472,6 @@ export function targetForItem(world: World, item: ItemInstance, selectedTarget: 
   return { kind: "none" };
 }
 
-function nextEntityId(world: World, prefix: string): string {
-  let i = 1;
-  let id = `${prefix}-${i}`;
-  while (world.entities[id]) {
-    i += 1;
-    id = `${prefix}-${i}`;
-  }
-  return id;
-}
-
-function normalizeEntityId(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-}
 
 function validateTarget(world: World, item: ItemInstance, target: Target, actorId: string): string | undefined {
   const targeting = item.components.targeting;

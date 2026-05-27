@@ -27,7 +27,9 @@
                     "kind": "adrenaline",
                     "chance": 1,
                     "target": "self",
-                    "overrideDurationMs": 20000,
+                    "overrides": {
+                        "durationMs": 20000,
+                    },
                 },
             ],
             "activation": {
@@ -153,7 +155,9 @@
                     "chance": 1,
                     "target": "activation_area",
                     "radius": 2,
-                    "overrideDurationMs": 5000,
+                    "overrides": {
+                        "durationMs": 5000,
+                    },
                 },
             ],
             "activation": {
@@ -210,13 +214,7 @@
                 "range": 40,
             },
             "entity_spawner": {
-                "idPrefix": "hatched-monster",
-                "name": "孵化怪物",
-                "color": "#fb923c",
-                "components": {
-                    "resources": { "hp": 35, "max_hp": 35 },
-                    "attributes": { "move_speed": 65, "attack_speed": 0.8 },
-                },
+                "prototype": "hatched-monster",
             },
             "activation": {
                 "max": 1,

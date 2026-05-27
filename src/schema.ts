@@ -17,6 +17,7 @@ const intMs: JSONSchema7 = { type: "integer", minimum: -1 };
 
 export const effectModelUri = "inmemory://ecs/effect.jsonc";
 export const itemModelUri = "inmemory://ecs/item.jsonc";
+export const entityModelUri = "inmemory://ecs/entity.jsonc";
 
 export function createEffectSchema(): JSONSchema7 {
   const modifierSchema: JSONSchema7 = {
@@ -112,7 +113,7 @@ export function createEffectSchema(): JSONSchema7 {
   };
 }
 
-export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
+export function createItemSchema(effectIds: readonly string[], entityIds: readonly string[] = []): JSONSchema7 {
   const effectKindSchema: JSONSchema7 = effectIds.length
     ? {
         type: "string",
@@ -120,6 +121,23 @@ export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
         description: "引用 effect.jsonc 中存在的 effect id。",
       }
     : { type: "string", description: "引用 effect.jsonc 中的 effect id；当前未加载到可枚举的 effect 列表。" };
+
+  const entityKindSchema: JSONSchema7 = entityIds.length
+    ? {
+        type: "string",
+        enum: [...entityIds].sort(),
+        description: "引用 entity.jsonc 中存在的 entity prototype id。",
+      }
+    : { type: "string", description: "引用 entity.jsonc 中的 entity prototype id；当前未加载到可枚举的 entity 列表。" };
+
+  const effectOverrideSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: true,
+    description: "本次施加时对 effect 定义的局部覆盖；例如 { durationMs: 20000 }。",
+    properties: {
+      durationMs: { ...intMs, description: "覆盖 effect 定义中的 durationMs，单位毫秒；-1 表示永久或由外部逻辑控制。" },
+    },
+  };
 
   const effectApplierSchema: JSONSchema7 = {
     type: "object",
@@ -134,7 +152,7 @@ export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
         default: "activation_target",
         description: "效果施加目标：self=物品自身；actor/user=使用者；activation_target=本次激活选中的目标；@* 为调试或兼容别名。",
       },
-      overrideDurationMs: { ...intMs, description: "覆盖 effect 定义中的 durationMs，单位毫秒；-1 表示永久或由外部逻辑控制。" },
+      overrides: effectOverrideSchema,
     },
   };
 
@@ -230,14 +248,15 @@ export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
         type: "object",
         additionalProperties: false,
         description: "实体生成组件：物品激活时，在位置目标处创建一个单位。",
-        required: ["name"],
+        required: ["prototype"],
         properties: {
-          idPrefix: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]*$", description: "生成实体 id 的前缀；运行时会自动追加序号避免重复。" },
-          name: { type: "string", description: "生成实体的显示名称。" },
-          color: { type: "string", description: "生成时的视觉提示颜色。" },
+          prototype: entityKindSchema,
+          entityId: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]*$", description: "可选：指定生成实体 id；不填时根据 prototype 自动生成。" },
+          name: { type: "string", description: "可选：覆盖生成实体显示名称。" },
+          color: { type: "string", description: "可选：覆盖生成时的视觉提示颜色。" },
           allowBlocked: { type: "boolean", default: false, description: "是否允许生成在障碍物格子。" },
           allowOccupied: { type: "boolean", default: false, description: "是否允许生成在已有实体占据的格子。" },
-          components: { type: "object", additionalProperties: true, description: "写入新实体的 components；position 会被激活目标位置覆盖。" },
+          overrides: { type: "object", additionalProperties: true, description: "对 entity prototype.components 的局部覆盖；position 会被激活目标位置覆盖。" },
         },
       },
     },
@@ -260,6 +279,92 @@ export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
     additionalProperties: false,
     patternProperties: {
       "^[a-z0-9][a-z0-9_-]*$": itemDefinition,
+    },
+  };
+}
+
+export function createEntitySchema(): JSONSchema7 {
+  const numericMap: JSONSchema7 = { type: "object", additionalProperties: { type: "number" } };
+  const componentsSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: true,
+    description: "实体组件集合；运行时组件 active_effects/casting 通常由系统维护，不建议在原型中手写。",
+    properties: {
+      display: {
+        type: "object",
+        additionalProperties: false,
+        description: "实体展示信息。",
+        required: ["name"],
+        properties: {
+          name: { type: "string", description: "实体显示名称。" },
+          description: { type: "string", description: "实体说明。" },
+          glyph: { type: "string", description: "Canvas 上显示的短字符。" },
+          color: { type: "string", description: "实体主体颜色。" },
+          strokeColor: { type: "string", description: "实体描边颜色。" },
+          icon: { type: "string", description: "实体图标资源路径或图标 id。" },
+        },
+      },
+      position: {
+        type: "object",
+        additionalProperties: false,
+        required: ["x", "y"],
+        properties: {
+          x: { type: "integer", minimum: 0, description: "格子 x 坐标。" },
+          y: { type: "integer", minimum: 0, description: "格子 y 坐标。" },
+        },
+      },
+      resources: {
+        ...numericMap,
+        description: "可消耗资源。MVP 中 hp <= 0 会死亡，max_<resource> 会作为上限。",
+        properties: {
+          hp: { type: "number", minimum: 0, description: "当前生命值。" },
+          max_hp: { type: "number", minimum: 0, description: "最大生命值。" },
+          mana: { type: "number", minimum: 0, description: "当前法力值。" },
+          max_mana: { type: "number", minimum: 0, description: "最大法力值。" },
+        },
+      },
+      attributes: {
+        ...numericMap,
+        description: "实体属性；effect modifiers 会基于这些值计算最终属性。",
+        properties: Object.fromEntries(ATTRIBUTE_IDS.map((id) => [id, { type: "number" }])) as JSONSchema7["properties"],
+      },
+      inventory: { type: "array", items: { type: "string" }, description: "实体持有的 item instance id 列表；原型里通常留空。" },
+      collision: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          blocksMovement: { type: "boolean", default: true, description: "是否阻挡移动。" },
+        },
+      },
+      faction: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", description: "阵营 id。" },
+        },
+      },
+      ai: { type: "object", additionalProperties: true, description: "AI 配置占位。" },
+      loot: { type: "object", additionalProperties: true, description: "掉落配置占位。" },
+    },
+  };
+
+  const entityDefinition: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["components"],
+    properties: {
+      components: { ...componentsSchema, description: "该实体原型拥有的组件集合。" },
+    },
+  };
+
+  return {
+    $id: "ecs://schema/entity.schema.json",
+    title: "Entity Definitions",
+    description: "entity.jsonc 根对象：key 是 entity prototype id，value.components 是组件集合。",
+    type: "object",
+    additionalProperties: false,
+    patternProperties: {
+      "^[a-z0-9][a-z0-9_-]*$": entityDefinition,
     },
   };
 }

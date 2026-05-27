@@ -4,32 +4,14 @@ import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
 
-export function createGameRuntime(effectText: string, itemText: string): GameRuntime {
+export function createGameRuntime(effectText: string, itemText: string, entityText: string): GameRuntime {
   const effects = parseJsonc(effectText, "effect.jsonc");
   const items = parseJsonc(itemText, "item.jsonc");
-  const world = new World(effects, items);
+  const entities = parseJsonc(entityText, "entity.jsonc");
+  const world = new World(effects, items, entities);
 
-  world.addEntity({
-    entityId: "player",
-    name: "玩家",
-    components: {
-      resources: { hp: 90, max_hp: 100 },
-      attributes: { move_speed: 100, attack_speed: 1.0 },
-      position: { x: 1, y: 1 },
-      inventory: [],
-      active_effects: {},
-    },
-  });
-  world.addEntity({
-    entityId: "dummy",
-    name: "训练假人",
-    components: {
-      resources: { hp: 60, max_hp: 60 },
-      attributes: { move_speed: 50, attack_speed: 0.5 },
-      position: { x: 11, y: 5 },
-      active_effects: {},
-    },
-  });
+  world.createEntity("player", { entityId: "player" });
+  world.createEntity("training-dummy", { entityId: "dummy" });
 
   const activationSystem = new ActivationSystem(world);
   new EffectApplierSystem(world);

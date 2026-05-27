@@ -1,0 +1,76 @@
+{
+    "player": {
+        "components": {
+            "display": {
+                "name": "玩家",
+                "glyph": "P",
+                "color": "#38bdf8",
+                "strokeColor": "#bae6fd",
+            },
+            "resources": {
+                "hp": 90,
+                "max_hp": 100,
+            },
+            "attributes": {
+                "move_speed": 100,
+                "attack_speed": 1.0,
+            },
+            "position": {
+                "x": 1,
+                "y": 1,
+            },
+            "inventory": [],
+            "collision": {
+                "blocksMovement": true,
+            },
+        },
+    },
+
+    "training-dummy": {
+        "components": {
+            "display": {
+                "name": "训练假人",
+                "glyph": "D",
+                "color": "#f87171",
+                "strokeColor": "#fecaca",
+            },
+            "resources": {
+                "hp": 60,
+                "max_hp": 60,
+            },
+            "attributes": {
+                "move_speed": 50,
+                "attack_speed": 0.5,
+            },
+            "position": {
+                "x": 11,
+                "y": 5,
+            },
+            "collision": {
+                "blocksMovement": true,
+            },
+        },
+    },
+
+    "hatched-monster": {
+        "components": {
+            "display": {
+                "name": "孵化怪物",
+                "glyph": "M",
+                "color": "#fb923c",
+                "strokeColor": "#fed7aa",
+            },
+            "resources": {
+                "hp": 35,
+                "max_hp": 35,
+            },
+            "attributes": {
+                "move_speed": 65,
+                "attack_speed": 0.8,
+            },
+            "collision": {
+                "blocksMovement": true,
+            },
+        },
+    },
+}
