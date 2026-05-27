@@ -1,0 +1,25 @@
+{
+  "name": "canvas-ecs-game-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@types/json-schema": "^7.0.15",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "antd": "^6.4.3",
+    "jsonc-parser": "^3.3.1",
+    "monaco-editor": "^0.49.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "vite": "^5.4.11"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

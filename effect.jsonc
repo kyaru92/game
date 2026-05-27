@@ -1,0 +1,130 @@
+{
+    "adrenaline": {
+        "id": "adrenaline",
+        "name": "肾上腺素",
+        "description": "提升移动速度与攻击速度",
+        "icon": "/assets/effects/adrenaline.png",
+
+        // 持续时间配置：单位毫秒，-1 表示永久（直到死亡或手动移除）
+        "durationMs": 10000,
+
+        // 叠层规则
+        "stacking": {
+            "maxStacks": 5,
+            // 叠层时的行为类型：
+            // "refresh_duration": 获得新层时，刷新所有层数的持续时间（最常见）
+            // "independent": 每层独立计算持续时间
+            // "none": 不能叠层；已有 effect 存续期间按 onOverlap 处理
+            "overlapBehavior": "refresh_duration",
+            // 达到 maxStacks 后的行为：
+            // "refresh_duration": 不增加层数，只刷新持续时间
+            // "reject": 拒绝新的施加请求
+            // "replace_oldest": 仅对 independent 有意义，替换最早过期的一层
+            "onMax": "refresh_duration",
+        },
+
+        // 该效果对属性的影响列表（支持同时修改多个属性）
+        "modifiers": [
+            {
+                "attribute": "attack_speed",
+                // 修改操作类型："add" (加法), "mul" (乘法), "override" (覆盖/设为固定值)
+                "op": "mul",
+                "value": 0.1,
+                // 叠层时数值如何计算：
+                // "add": 线性相加 (0.1 + 0.1 = 0.2)
+                // "mul": 复合相乘 ((1+0.1)*(1+0.1) - 1)
+                // "none": 数值不随层数变化（仅时间变化）
+                "stackType": "add",
+            },
+            {
+                "attribute": "move_speed",
+                "op": "add",
+                "value": 10.0,
+                "stackType": "add",
+            },
+        ],
+
+        // 可选：周期性触发的效果（如中毒扣血、持续回血，即 Tick 效果）
+        "periodicEffect": {
+            "intervalMs": 1000, // 每 1 秒触发一次
+            "attribute": "hp",
+            "op": "add",
+            "value": 2, // 每秒回 2 点血
+            "stackType": "add",
+        },
+    },
+
+    "regeneration": {
+        "id": "regeneration",
+        "name": "再生",
+        "description": "持续恢复生命值。",
+        "icon": "/assets/effects/regeneration.png",
+        "durationMs": 8000,
+        "stacking": {
+            "maxStacks": 3,
+            "overlapBehavior": "refresh_duration",
+            "onMax": "refresh_duration",
+        },
+        "modifiers": [],
+        "periodicEffect": {
+            "intervalMs": 1000,
+            "attribute": "hp",
+            "op": "add",
+            "value": 5,
+            "stackType": "add",
+        },
+    },
+
+    "poison": {
+        "id": "poison",
+        "name": "中毒",
+        "description": "每层独立持续，并周期性损失生命。",
+        "icon": "/assets/effects/poison.png",
+        "durationMs": 6000,
+        "stacking": {
+            "maxStacks": 3,
+            "overlapBehavior": "independent",
+            "onMax": "reject",
+        },
+        "modifiers": [
+            {
+                "attribute": "move_speed",
+                "op": "mul",
+                "value": -0.08,
+                "stackType": "add",
+            },
+        ],
+        "periodicEffect": {
+            "intervalMs": 1000,
+            "attribute": "hp",
+            "op": "add",
+            "value": -4,
+            "stackType": "add",
+        },
+    },
+
+    "focus": {
+        "id": "focus",
+        "name": "专注",
+        "description": "不可重叠；存在期间再次施加会被拒绝。",
+        "icon": "/assets/effects/focus.png",
+        "durationMs": 7000,
+        "stacking": {
+            "maxStacks": 1,
+            "overlapBehavior": "none",
+            // overlapBehavior 为 none 时，已有同类 effect 的处理：
+            // "reject": 拒绝新的施加请求
+            // "refresh_duration": 只刷新持续时间
+            // "replace": 替换旧效果
+            "onOverlap": "reject",
+        },
+        "modifiers": [
+            {
+                "attribute": "attack_speed",
+                "op": "mul",
+                "value": 0.25,
+                "stackType": "none",
+            },
+        ],
+    },
+}

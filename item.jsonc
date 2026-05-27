@@ -1,0 +1,194 @@
+{
+    "adrenaline-injector": {
+        "components": {
+            "display": {
+                "name": "肾上腺素针",
+                "description": "恢复 {$attribute[$modifyAttr].name} {$modifyValueRate} 点。固定属性名 {$attribute[hp].name}。",
+                "icon": "/assets/items/adrenaline-injector.png",
+            },
+            "stacking": {
+                "max": 1,
+            },
+            "economy": {
+                "baseValue": 32,
+            },
+            "quality": {
+                "value": "blue",
+            },
+            "searchable": {
+                "searchDurationMs": 1800,
+            },
+            // 使用目标定义。self 表示只能对自己使用；use 0 默认就是自己。
+            "targeting": {
+                "mode": "self",
+            },
+            "effect_applier": [
+                {
+                    "kind": "adrenaline",
+                    "chance": 1,
+                    "target": "self",
+                    "overrideDurationMs": 20000,
+                },
+            ],
+            "activation": {
+                // MVP 中 max 被解释为 charges/maxCharges，即该物品实例最多可使用次数。
+                // 后续可以正式改名为 maxCharges。
+                "max": 1,
+                "cooldownMs": 5000,
+                "castDurationMs": 2000,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "regen-serum": {
+        "components": {
+            "display": {
+                "name": "再生血清",
+                "description": "给自己施加再生效果。",
+                "icon": "/assets/items/regen-serum.png",
+            },
+            "stacking": {
+                "max": 3,
+            },
+            "economy": {
+                "baseValue": 26,
+            },
+            "targeting": {
+                "mode": "self",
+            },
+            "effect_applier": [
+                {
+                    "kind": "regeneration",
+                    "chance": 1,
+                    "target": "self",
+                },
+            ],
+            "activation": {
+                "max": 1,
+                "cooldownMs": 1500,
+                "castDurationMs": 1200,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "focus-coffee": {
+        "components": {
+            "display": {
+                "name": "专注咖啡",
+                "description": "施加不可重叠的专注效果。",
+                "icon": "/assets/items/focus-coffee.png",
+            },
+            "economy": {
+                "baseValue": 12,
+            },
+            "targeting": {
+                "mode": "self",
+            },
+            "effect_applier": [
+                {
+                    "kind": "focus",
+                    "chance": 1,
+                    "target": "self",
+                },
+            ],
+            "activation": {
+                "max": 2,
+                "cooldownMs": 1000,
+                "castDurationMs": 700,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "toxic-dart": {
+        "components": {
+            "display": {
+                "name": "毒镖",
+                "description": "向一个实体目标施加中毒。",
+                "icon": "/assets/items/toxic-dart.png",
+            },
+            "economy": {
+                "baseValue": 18,
+            },
+            "targeting": {
+                "mode": "entity",
+                "range": 30,
+                "default": "@dummy",
+            },
+            "effect_applier": [
+                {
+                    "kind": "poison",
+                    "chance": 1,
+                    "target": "activation_target",
+                },
+            ],
+            "activation": {
+                "max": 3,
+                "cooldownMs": 900,
+                "castDurationMs": 500,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "poison-cloud-grenade": {
+        "components": {
+            "display": {
+                "name": "毒雾手雷",
+                "description": "对位置目标投掷，在半径 2 格范围内给所有实体施加中毒。",
+                "icon": "/assets/items/poison-cloud-grenade.png",
+            },
+            "economy": {
+                "baseValue": 36,
+            },
+            "targeting": {
+                "mode": "position",
+                "range": 40,
+            },
+            "effect_applier": [
+                {
+                    "kind": "poison",
+                    "chance": 1,
+                    "target": "activation_area",
+                    "radius": 2,
+                    "overrideDurationMs": 5000,
+                },
+            ],
+            "activation": {
+                "max": 2,
+                "cooldownMs": 1600,
+                "castDurationMs": 600,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "blink-device": {
+        "components": {
+            "display": {
+                "name": "闪现装置",
+                "description": "对位置目标使用，把使用者移动过去。",
+                "icon": "/assets/items/blink-device.png",
+            },
+            "economy": {
+                "baseValue": 45,
+            },
+            "targeting": {
+                "mode": "position",
+                "range": 50,
+            },
+            "teleporter": {
+                "who": "self",
+                "target": "activation_target",
+            },
+            "activation": {
+                "max": 3,
+                "cooldownMs": 1000,
+                "castDurationMs": 400,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
+}
