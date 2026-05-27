@@ -226,6 +226,20 @@ export function createItemSchema(effectIds: readonly string[]): JSONSchema7 {
           target: { type: "string", enum: ["activation_target"], description: "传送目的地，目前为本次激活选中的目标。" },
         },
       },
+      entity_spawner: {
+        type: "object",
+        additionalProperties: false,
+        description: "实体生成组件：物品激活时，在位置目标处创建一个单位。",
+        required: ["name"],
+        properties: {
+          idPrefix: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]*$", description: "生成实体 id 的前缀；运行时会自动追加序号避免重复。" },
+          name: { type: "string", description: "生成实体的显示名称。" },
+          color: { type: "string", description: "生成时的视觉提示颜色。" },
+          allowBlocked: { type: "boolean", default: false, description: "是否允许生成在障碍物格子。" },
+          allowOccupied: { type: "boolean", default: false, description: "是否允许生成在已有实体占据的格子。" },
+          components: { type: "object", additionalProperties: true, description: "写入新实体的 components；position 会被激活目标位置覆盖。" },
+        },
+      },
     },
   };
 

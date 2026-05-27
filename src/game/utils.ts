@@ -15,6 +15,7 @@ const ITEM_ICON_FALLBACKS: Record<string, string> = {
   "toxic-dart": "🎯",
   "poison-cloud-grenade": "☣️",
   "blink-device": "⚡",
+  "monster-egg": "🥚",
 };
 
 export function deepClone<T>(value: T): T {

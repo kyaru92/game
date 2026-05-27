@@ -1,6 +1,7 @@
 import type { Entity, EventData, ItemInstance, JsonObj, Target } from "./types";
 import type { World } from "./world";
 import {
+  deepClone,
   displayItemName,
   describeTarget,
   effectColor,
@@ -205,6 +206,57 @@ export class TeleportSystem {
     actor.components.position = { x, y };
     this.world.addTeleportTrail([from.x, from.y], [x, y]);
     this.world.log(`${actor.name} 闪现到 ${describeTarget(this.world, target)}。`);
+  }
+}
+
+export class EntitySpawnerSystem {
+  constructor(private readonly world: World) {
+    world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
+  }
+
+  private onItemActivation(event: EventData): void {
+    const item = this.world.items[event.data.itemId];
+    const spawner = item.components.entity_spawner;
+    if (!spawner) return;
+
+    const target = event.data.target as Target;
+    if (target.kind !== "position" || !target.position) {
+      this.world.log(`${displayItemName(item)} 需要位置目标。`);
+      return;
+    }
+
+    const [x, y] = target.position;
+    if (!this.world.isInside(x, y)) {
+      this.world.log("生成目标超出地图。");
+      return;
+    }
+    if (!spawner.allowBlocked && this.world.isBlocked(x, y)) {
+      this.world.log("生成目标是障碍物，无法孵化。");
+      return;
+    }
+    const occupying = this.world.entityAt(x, y);
+    if (!spawner.allowOccupied && occupying) {
+      this.world.log(`${occupying.name} 占据了生成位置，无法孵化。`);
+      return;
+    }
+
+    const idPrefix = normalizeEntityId(String(spawner.idPrefix ?? item.protoId ?? "summon")) || "summon";
+    const entityId = nextEntityId(this.world, idPrefix);
+    const components = deepClone(spawner.components ?? {});
+    components.position = { ...(components.position ?? {}), x, y };
+    components.resources ??= { hp: 25, max_hp: 25 };
+    components.attributes ??= { move_speed: 55, attack_speed: 0.7 };
+    components.active_effects ??= {};
+
+    const entity: Entity = {
+      entityId,
+      name: String(spawner.name ?? entityId),
+      components,
+    };
+    this.world.addEntity(entity);
+    this.world.addBurst(entityId, String(spawner.color ?? "#fb923c"));
+    this.world.addFloatingText(entityId, entity.name, String(spawner.color ?? "#fb923c"));
+    this.world.log(`${this.world.entityName(String(event.data.actorId))} 使用 ${displayItemName(item)}，在 (${x},${y}) 生成 ${entity.name}。`);
   }
 }
 
@@ -421,6 +473,20 @@ export function targetForItem(world: World, item: ItemInstance, selectedTarget: 
     return { kind: "position", position: [playerPosition.x, playerPosition.y] };
   }
   return { kind: "none" };
+}
+
+function nextEntityId(world: World, prefix: string): string {
+  let i = 1;
+  let id = `${prefix}-${i}`;
+  while (world.entities[id]) {
+    i += 1;
+    id = `${prefix}-${i}`;
+  }
+  return id;
+}
+
+function normalizeEntityId(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function validateTarget(world: World, item: ItemInstance, target: Target, actorId: string): string | undefined {

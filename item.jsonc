@@ -191,4 +191,39 @@
             },
         },
     },
+
+    "monster-egg": {
+        "components": {
+            "display": {
+                "name": "怪物蛋",
+                "description": "扔到位置目标，在该格创建一只小怪物。",
+                "icon": "/assets/items/monster-egg.png",
+            },
+            "economy": {
+                "baseValue": 28,
+            },
+            "quality": {
+                "value": "green",
+            },
+            "targeting": {
+                "mode": "position",
+                "range": 40,
+            },
+            "entity_spawner": {
+                "idPrefix": "hatched-monster",
+                "name": "孵化怪物",
+                "color": "#fb923c",
+                "components": {
+                    "resources": { "hp": 35, "max_hp": 35 },
+                    "attributes": { "move_speed": 65, "attack_speed": 0.8 },
+                },
+            },
+            "activation": {
+                "max": 1,
+                "cooldownMs": 500,
+                "castDurationMs": 500,
+                "consumeWhenDepleted": true,
+            },
+        },
+    },
 }

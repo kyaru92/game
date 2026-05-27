@@ -1,5 +1,5 @@
 import { parse } from "jsonc-parser";
-import { ActivationSystem, AttributeSystem, EffectApplierSystem, EffectSystem, TeleportSystem } from "./systems";
+import { ActivationSystem, AttributeSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, TeleportSystem } from "./systems";
 import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
@@ -34,11 +34,12 @@ export function createGameRuntime(effectText: string, itemText: string): GameRun
   const activationSystem = new ActivationSystem(world);
   new EffectApplierSystem(world);
   new TeleportSystem(world);
+  new EntitySpawnerSystem(world);
   const effectSystem = new EffectSystem(world);
   const attributeSystem = new AttributeSystem(world);
   world.systems.push(activationSystem, effectSystem);
 
-  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device"]) {
+  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg"]) {
     if (world.itemPrototypes[protoId]) world.give("player", protoId);
   }
   world.log("Canvas ECS MVP 已启动：WASD/方向键移动，点击格子选择目标，数字键 1-9 使用物品；输入 help 查看指令。");
