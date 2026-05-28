@@ -9,7 +9,7 @@ export class EffectApplierSystem {
     world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
   }
 
-  private onItemActivation(event: EventData): void {
+  private onItemActivation(event: EventData<"OnItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     if (item.components.projectile_launcher || item.components.firearm) return;
     const appliers = normalizeArray(item.components.effect_applier);
@@ -19,8 +19,8 @@ export class EffectApplierSystem {
         this.world.log(`效果 ${applier.kind} 未触发。`);
         continue;
       }
-      const targetMode = String(applier.target ?? "activation_target");
-      const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+      const targetMode = applier.target ?? "activation_target";
+      const radius = Number(applier.radius ?? 0);
       if (targetMode === "activation_area" || radius > 0) {
         const targets = resolveAreaTargets(this.world, event.data.target, radius || 2);
         if (!targets.length) {
@@ -43,7 +43,7 @@ export class EffectApplierSystem {
       const target = resolveEffectTarget(
         this.world,
         targetMode,
-        String(event.data.actorId),
+        event.data.actorId,
         event.data.target,
       );
       if (target.kind !== "entity" || !target.entityId) {

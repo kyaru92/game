@@ -1,38 +1,37 @@
-
-import type { ItemInstance, JsonObj } from "../types";
+import type { AmmoComponent, AmmoRound, FirearmComponent, ProjectileConfig } from "../../domain/componentTypes";
+import type { ItemInstance } from "../types";
 import type { World } from "../world";
 import { displayItemName } from "../utils";
-import { cloneOptional, stringList } from "./common";
+import { cloneOptional } from "./common";
 
-export function magazineRounds(firearm: JsonObj): JsonObj[] {
+export function magazineRounds(firearm: FirearmComponent): AmmoRound[] {
   firearm.loadedRounds ??= [];
   return firearm.loadedRounds;
 }
 
-export function magazineSize(firearm: JsonObj): number {
-  return Math.max(1, Number(firearm.magazineSize ?? firearm.capacity ?? 1));
+export function magazineSize(firearm: FirearmComponent): number {
+  return firearm.magazineSize;
 }
 
-export function acceptsAmmo(firearm: JsonObj, ammo: JsonObj): boolean {
-  const accepted = stringList(firearm.acceptedAmmoTypes ?? firearm.ammoTypes ?? firearm.ammoType);
-  const ammoType = String(ammo.ammoType ?? "").trim().toLowerCase();
+export function acceptsAmmo(firearm: FirearmComponent, ammo: AmmoComponent): boolean {
+  const accepted = firearm.acceptedAmmoTypes.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const ammoType = ammo.ammoType.trim().toLowerCase();
   return accepted.length === 0 || accepted.includes(ammoType);
 }
 
-export function makeAmmoRound(item: ItemInstance): JsonObj {
+export function makeAmmoRound(item: ItemInstance): AmmoRound {
   const ammo = item.components.ammo;
-  if (!ammo) return { ammoProtoId: item.protoId, displayName: displayItemName(item), ammoType: item.protoId, projectile: {} };
+  if (!ammo) throw new Error(`${displayItemName(item)} 没有 ammo 组件，无法创建弹药运行时对象。`);
   return {
     ammoProtoId: item.protoId,
     displayName: displayItemName(item),
-    ammoType: String(ammo.ammoType ?? item.protoId),
-    damage: Number(ammo.damage ?? 0),
-    damageType: String(ammo.damageType ?? "generic"),
-    areaRadius: ammo.areaRadius,
+    ammoType: ammo.ammoType,
+    damage: ammo.damage ?? 0,
+    damageType: ammo.damageType ?? "generic",
     impactRadius: ammo.impactRadius,
     damage_applier: cloneOptional(ammo.damage_applier),
     effect_applier: cloneOptional(ammo.effect_applier),
-    projectile: cloneOptional(ammo.projectile) ?? {},
+    projectile: cloneOptional(ammo.projectile) ?? ({} as ProjectileConfig),
   };
 }
 

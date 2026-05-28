@@ -1,5 +1,6 @@
 
-import type { EventData, ItemInstance, JsonObj, Target } from "../types";
+import type { AmmoRound, FirearmComponent } from "../../domain/componentTypes";
+import type { EventData, ItemInstance } from "../types";
 import type { World } from "../world";
 import { displayItemName } from "../utils";
 import {
@@ -49,7 +50,7 @@ export class FirearmSystem {
     }
   }
 
-  private onBeforeItemActivation(event: EventData): void {
+  private onBeforeItemActivation(event: EventData<"BeforeItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     const firearm = item?.components.firearm;
     if (!item || !firearm) return;
@@ -68,7 +69,7 @@ export class FirearmSystem {
       : `${displayItemName(item)} 弹匣为空，且背包里没有可用弹药。`;
   }
 
-  private onItemActivation(event: EventData): void {
+  private onItemActivation(event: EventData<"OnItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     const firearm = item?.components.firearm;
     if (!item || !firearm) return;
@@ -82,7 +83,7 @@ export class FirearmSystem {
     const launched = launchProjectile(this.world, {
       sourceEntityId: String(event.data.actorId),
       sourceItemId: item.instanceId,
-      target: event.data.target as Target,
+      target: event.data.target,
       displayName: `${displayItemName(item)} / ${round.displayName ?? round.ammoProtoId ?? "子弹"}`,
       color: String(firearm.projectileColor ?? round.projectile?.color ?? "#facc15"),
       glyph: String(firearm.projectileGlyph ?? round.projectile?.glyph ?? "•"),
@@ -135,7 +136,7 @@ export class FirearmSystem {
     this.world.log(`${displayItemName(item)} 装填 ${rounds.length} 发，弹匣 ${magazineRounds(firearm).length}/${capacity}。`);
   }
 
-  private availableAmmoCount(ownerId: string, firearm: JsonObj, firearmItemId: string): number {
+  private availableAmmoCount(ownerId: string, firearm: FirearmComponent, firearmItemId: string): number {
     let count = 0;
     for (const itemId of this.world.services.inventory.get(ownerId)) {
       if (itemId === firearmItemId) continue;
@@ -146,8 +147,8 @@ export class FirearmSystem {
     return count;
   }
 
-  private takeAmmoRounds(ownerId: string, firearm: JsonObj, firearmItemId: string, count: number): JsonObj[] {
-    const rounds: JsonObj[] = [];
+  private takeAmmoRounds(ownerId: string, firearm: FirearmComponent, firearmItemId: string, count: number): AmmoRound[] {
+    const rounds: AmmoRound[] = [];
     const inventory = this.world.services.inventory.get(ownerId);
     for (const itemId of [...inventory]) {
       if (rounds.length >= count || itemId === firearmItemId) continue;

@@ -1,4 +1,5 @@
-import type { Entity, JsonObj } from "../types";
+import type { EntityRuntimeComponents } from "../../domain/componentTypes";
+import type { Entity } from "../types";
 import type { World } from "../world";
 
 export interface MoveOptions {
@@ -128,7 +129,7 @@ export class SpatialService {
   }
 }
 
-export function collisionBox(components: JsonObj, position: { x: number; y: number }, defaultRadius: number): CollisionBox {
+export function collisionBox(components: EntityRuntimeComponents, position: { x: number; y: number }, defaultRadius: number): CollisionBox {
   const collision = components.collision ?? {};
   const radius = positiveNumber(collision.radius, defaultRadius);
   const width = positiveNumber(collision.width, radius * 2);

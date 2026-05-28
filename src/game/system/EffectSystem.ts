@@ -1,25 +1,27 @@
-
-import type { Entity, EventData, JsonObj } from "../types";
+import type { ActiveEffectLayer, ActiveEffectRuntime, EffectDefinition, EffectOverride } from "../../domain/componentTypes";
+import type { Entity, EventData } from "../types";
 import type { World } from "../world";
-import { effectColor, effectStackCount, formatDuration } from "../utils";
+import { effectColor, formatDuration } from "../utils";
 import { applyPeriodicChange, makeActiveEffect, makeLayer, refreshRuntime } from "./effectRuntime";
+
+type EffectBehavior = NonNullable<ActiveEffectRuntime["behavior"]>;
 
 export class EffectSystem {
   constructor(private readonly world: World) {
     world.bus.subscribe("ApplyEffectRequest", (event) => this.onApplyEffectRequest(event));
   }
 
-  private onApplyEffectRequest(event: EventData): void {
+  private onApplyEffectRequest(event: EventData<"ApplyEffectRequest">): void {
     this.applyEffect(
-      String(event.data.effectId),
-      String(event.data.targetEntityId),
+      event.data.effectId,
+      event.data.targetEntityId,
       event.data.sourceEntityId,
       event.data.sourceItemId,
       event.data.effectOverrides,
     );
   }
 
-  applyEffect(effectId: string, targetEntityId: string, sourceEntityId?: string, sourceItemId?: string, effectOverrides?: JsonObj): void {
+  applyEffect(effectId: string, targetEntityId: string, sourceEntityId?: string, sourceItemId?: string, effectOverrides?: EffectOverride): void {
     const definition = this.world.effects[effectId];
     if (!definition) {
       this.world.log(`未知效果：${effectId}`);
@@ -32,10 +34,11 @@ export class EffectSystem {
     }
     const effects = (target.components.active_effects ??= {});
     const now = this.world.nowMs();
-    const durationMs = Number(effectOverrides?.durationMs ?? definition.durationMs ?? -1);    const stacking = definition.stacking ?? {};
-    const behavior = String(stacking.overlapBehavior ?? "none");
-    const maxStacks = Number(stacking.maxStacks ?? 1);
-    const name = String(definition.name ?? effectId);
+    const durationMs = Number(effectOverrides?.durationMs ?? definition.durationMs);
+    const stacking = definition.stacking;
+    const behavior = stacking.overlapBehavior;
+    const maxStacks = stacking.maxStacks;
+    const name = definition.name;
     const existing = effects[effectId];
 
     if (behavior === "refresh_duration") {
@@ -45,7 +48,7 @@ export class EffectSystem {
           existing.stacks = oldStacks + 1;
           this.world.log(`${target.name} 的 ${name} 叠加到 ${existing.stacks} 层。`);
         } else {
-          const onMax = String(stacking.onMax ?? "refresh_duration");
+          const onMax = stacking.onMax ?? "refresh_duration";
           if (onMax === "reject") {
             this.world.log(`${target.name} 的 ${name} 已达最大层数 ${maxStacks}，新效果被拒绝。`);
             return;
@@ -67,9 +70,9 @@ export class EffectSystem {
       if (existing) {
         const layers = (existing.layers ??= []);
         if (layers.length >= maxStacks) {
-          const onMax = String(stacking.onMax ?? "reject");
+          const onMax = stacking.onMax ?? "reject";
           if (onMax === "replace_oldest") {
-            layers.sort((a: JsonObj, b: JsonObj) => Number(a.expiresAtMs ?? 1e18) - Number(b.expiresAtMs ?? 1e18));
+            layers.sort((a: ActiveEffectLayer, b: ActiveEffectLayer) => Number(a.expiresAtMs ?? 1e18) - Number(b.expiresAtMs ?? 1e18));
             layers.shift();
             this.world.log(`${target.name} 的 ${name} 已达最大层数，替换最早过期的一层。`);
           } else {
@@ -91,7 +94,7 @@ export class EffectSystem {
     }
 
     if (existing) {
-      const policy = String(stacking.onOverlap ?? "reject");
+      const policy = stacking.onOverlap ?? "reject";
       if (policy === "refresh_duration") {
         refreshRuntime(existing, durationMs, now);
         this.world.log(`${target.name} 已有 ${name}，刷新持续时间。`);
@@ -125,7 +128,7 @@ export class EffectSystem {
     }
   }
 
-  private updateSimple(entity: Entity, effectId: string, active: JsonObj, definition: JsonObj, now: number): void {
+  private updateSimple(entity: Entity, effectId: string, active: ActiveEffectRuntime, definition: EffectDefinition, now: number): void {
     this.runPeriodic(entity, definition, active, now, Number(active.stacks ?? 1));
     const expiresAt = active.expiresAtMs;
     if (expiresAt !== null && expiresAt !== undefined && now >= Number(expiresAt)) {
@@ -134,9 +137,9 @@ export class EffectSystem {
     }
   }
 
-  private updateIndependent(entity: Entity, effectId: string, active: JsonObj, definition: JsonObj, now: number): void {
-    const layers: JsonObj[] = active.layers ?? [];
-    const alive: JsonObj[] = [];
+  private updateIndependent(entity: Entity, effectId: string, active: ActiveEffectRuntime, definition: EffectDefinition, now: number): void {
+    const layers: ActiveEffectLayer[] = active.layers ?? [];
+    const alive: ActiveEffectLayer[] = [];
     let expiredCount = 0;
     for (const layer of layers) {
       this.runPeriodic(entity, definition, layer, now, 1);
@@ -153,7 +156,7 @@ export class EffectSystem {
     }
   }
 
-  private runPeriodic(entity: Entity, definition: JsonObj, runtime: JsonObj, now: number, stacks: number): void {
+  private runPeriodic(entity: Entity, definition: EffectDefinition, runtime: ActiveEffectRuntime | ActiveEffectLayer, now: number, stacks: number): void {
     const periodic = definition.periodicEffect;
     if (!periodic) return;
     const interval = Number(periodic.intervalMs ?? 1000);

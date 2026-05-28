@@ -1,7 +1,7 @@
-import { parse } from "jsonc-parser";
+import { parse, type ParseError } from "jsonc-parser";
 import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, FirearmSystem, LootSystem, ProjectileLauncherSystem, ProjectileSystem, TeleportSystem } from "./systems";
-import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
-import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
+import type { ActiveEffectRuntime, EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
+import type { EffectSummary, Entity, GameRuntime } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
 
@@ -44,14 +44,15 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
 
 export function getEffectSummaries(world: World, entity: Entity): EffectSummary[] {
   const now = world.nowMs();
-  return Object.entries<JsonObj>(entity.components.active_effects ?? {}).map(([effectId, runtime]) => {
-    const definition = world.effects[effectId] ?? {};
+  return Object.entries<ActiveEffectRuntime>(entity.components.active_effects ?? {}).flatMap(([effectId, runtime]) => {
+    const definition = world.effects[effectId];
+    if (!definition) return [];
     const stacks = effectStackCount(runtime);
     const timing = summarizeTiming(runtime, now);
     return {
       id: effectId,
-      name: String(definition.name ?? effectId),
-      description: String(definition.description ?? ""),
+      name: definition.name,
+      description: definition.description ?? "",
       stacks,
       remainingText: timing.remainingText,
       remainingMs: timing.remainingMs,
@@ -60,7 +61,7 @@ export function getEffectSummaries(world: World, entity: Entity): EffectSummary[
       color: effectColor(effectId),
       modifiers: definition.modifiers ?? [],
       periodicEffect: definition.periodicEffect,
-      behavior: String(runtime.behavior ?? "none"),
+      behavior: runtime.behavior ?? "none",
     };
   });
 }
@@ -77,7 +78,7 @@ function createInitialObstacles(world: World): void {
 }
 
 function parseJsonc<T>(text: string, label: string): T {
-  const errors: any[] = [];
+  const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length) throw new Error(`${label} 解析失败：${errors.map((error) => error.error).join(", ")}`);
   return (value ?? {}) as T;

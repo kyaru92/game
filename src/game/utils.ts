@@ -1,5 +1,5 @@
-import type { ActiveEffectRuntime, EffectModifier } from "../domain/componentTypes";
-import type { EffectSummary, ItemInstance, JsonObj, Target } from "./types";
+import type { ActiveEffectLayer, ActiveEffectRuntime, EffectModifier, EntityRuntimeComponents, UnknownObject } from "../domain/componentTypes";
+import type { EffectSummary, ItemInstance, Target } from "./types";
 import type { World } from "./world";
 
 const EFFECT_COLORS: Record<string, string> = {
@@ -28,16 +28,17 @@ export function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export function deepMerge<T extends JsonObj>(base: T, override: JsonObj): T {
-  const target = base as JsonObj;
+export function deepMerge<T extends UnknownObject>(base: T, override: UnknownObject): T {
+  const target: UnknownObject = base;
   for (const [key, value] of Object.entries(override)) {
-    if (isPlainObject(value) && isPlainObject(target[key])) deepMerge(target[key], value);
+    const current = target[key];
+    if (isPlainObject(value) && isPlainObject(current)) deepMerge(current, value);
     else target[key] = deepClone(value);
   }
   return base;
 }
 
-function isPlainObject(value: unknown): value is JsonObj {
+export function isPlainObject(value: unknown): value is UnknownObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -45,10 +46,9 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export function normalizeArray(value: unknown): JsonObj[] {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") return [value as JsonObj];
-  return [];
+export function normalizeArray<T>(value: T | T[] | undefined): T[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 export function effectColor(effectId: string): string {
@@ -76,10 +76,10 @@ export function isEquipmentItem(item: ItemInstance): boolean {
   return Boolean(item.components.equipment || item.components.firearm);
 }
 
-export function initEntityRuntimeState(entity: { components: JsonObj }): void {
+export function initEntityRuntimeState(entity: { components: EntityRuntimeComponents }): void {
   entity.components.active_effects ??= {};
   const resources = entity.components.resources;
-  if (resources && typeof resources === "object") {
+  if (resources) {
     for (const [key, value] of Object.entries(resources)) {
       if (!key.startsWith("max_") || typeof value !== "number") continue;
       const resourceKey = key.slice(4);
@@ -102,7 +102,7 @@ export function initItemRuntimeState(item: ItemInstance): void {
 
   const activation = item.components.activation;
   if (!activation) return;
-  const maxCharges = activation.maxCharges ?? activation.max ?? activation.charges ?? 1;
+  const maxCharges = activation.maxCharges ?? activation.charges ?? 1;
   activation.maxCharges ??= maxCharges;
   activation.charges ??= maxCharges;
   activation._cooldownUntilMs ??= 0;
@@ -144,9 +144,9 @@ export function stackedValue(value: number, stacks: number, stackType: EffectMod
   return value;
 }
 
-export function summarizeTiming(runtime: JsonObj, now: number): Pick<EffectSummary, "remainingText" | "remainingMs" | "durationMs" | "progress"> {
+export function summarizeTiming(runtime: ActiveEffectRuntime, now: number): Pick<EffectSummary, "remainingText" | "remainingMs" | "durationMs" | "progress"> {
   if (runtime.behavior === "independent") {
-    const layers: JsonObj[] = runtime.layers ?? [];
+    const layers: ActiveEffectLayer[] = runtime.layers ?? [];
     const remains = layers.map((layer) => layer.expiresAtMs === null ? null : Math.max(0, Number(layer.expiresAtMs) - now));
     const finite = remains.filter((value): value is number => value !== null);
     const remainingMs = finite.length ? Math.max(...finite) : null;

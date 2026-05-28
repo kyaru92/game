@@ -1,5 +1,5 @@
 
-import type { EventData, Target } from "../types";
+import type { EventData } from "../types";
 import type { World } from "../world";
 import { describeTarget, displayItemName } from "../utils";
 import { roundCoord } from "./common";
@@ -9,16 +9,16 @@ export class TeleportSystem {
     world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
   }
 
-  private onItemActivation(event: EventData): void {
+  private onItemActivation(event: EventData<"OnItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     const teleporter = item.components.teleporter;
     if (!teleporter) return;
-    const target = event.data.target as Target;
+    const target = event.data.target;
     if (target.kind !== "position" || !target.position) {
       this.world.log(`${displayItemName(item)} 需要位置目标。`);
       return;
     }
-    const actor = this.world.entities[String(event.data.actorId)];
+    const actor = this.world.entities[event.data.actorId];
     if (!actor) return;
     const from = actor.components.position ?? { x: 0, y: 0 };
     const [x, y] = target.position;

@@ -1,5 +1,5 @@
 
-import type { EventData, Target } from "../types";
+import type { EventData } from "../types";
 import type { World } from "../world";
 import { displayItemName } from "../utils";
 import { cloneOptional } from "./common";
@@ -10,15 +10,15 @@ export class ProjectileLauncherSystem {
     world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
   }
 
-  private onItemActivation(event: EventData): void {
+  private onItemActivation(event: EventData<"OnItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     const launcher = item?.components.projectile_launcher;
     if (!item || !launcher) return;
 
     launchProjectile(this.world, {
-      sourceEntityId: String(event.data.actorId),
+      sourceEntityId: event.data.actorId,
       sourceItemId: item.instanceId,
-      target: event.data.target as Target,
+      target: event.data.target,
       displayName: displayItemName(item),
       color: String(launcher.color ?? "#f8fafc"),
       glyph: String(launcher.glyph ?? "•"),

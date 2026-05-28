@@ -1,11 +1,12 @@
-
-import type { Entity, JsonObj } from "../types";
+import type { ActiveEffectLayer, ActiveEffectRuntime, EffectDefinition, PeriodicEffect } from "../../domain/componentTypes";
+import type { Entity } from "../types";
 import type { World } from "../world";
 import { stackedValue } from "../utils";
 
 type PeriodicStackType = Parameters<typeof stackedValue>[2];
+type EffectBehavior = NonNullable<ActiveEffectRuntime["behavior"]>;
 
-export function makeLayer(definition: JsonObj, durationMs: number, now: number): JsonObj {
+export function makeLayer(definition: EffectDefinition, durationMs: number, now: number): ActiveEffectLayer {
   const interval = definition.periodicEffect ? Number(definition.periodicEffect.intervalMs ?? 1000) : undefined;
   return {
     startedAtMs: now,
@@ -15,8 +16,8 @@ export function makeLayer(definition: JsonObj, durationMs: number, now: number):
   };
 }
 
-export function makeActiveEffect(definition: JsonObj, behavior: string, stacks: number, durationMs: number, now: number, sourceEntityId?: string, sourceItemId?: string): JsonObj {
-  const active: JsonObj = {
+export function makeActiveEffect(definition: EffectDefinition, behavior: EffectBehavior, stacks: number, durationMs: number, now: number, sourceEntityId?: string, sourceItemId?: string): ActiveEffectRuntime {
+  const active: ActiveEffectRuntime = {
     effectId: definition.id,
     behavior,
     stacks,
@@ -28,23 +29,23 @@ export function makeActiveEffect(definition: JsonObj, behavior: string, stacks: 
   return active;
 }
 
-export function refreshRuntime(runtime: JsonObj, durationMs: number, now: number): void {
+export function refreshRuntime(runtime: ActiveEffectRuntime | ActiveEffectLayer, durationMs: number, now: number): void {
   runtime.startedAtMs = now;
   runtime.expiresAtMs = durationMs < 0 ? null : now + durationMs;
   runtime.durationMs = durationMs;
 }
 
-export function applyPeriodicChange(world: World, entity: Entity, definition: JsonObj, periodic: JsonObj, stacks: number): void {
-  const attr = String(periodic.attribute);
-  const op = String(periodic.op ?? "add");
+export function applyPeriodicChange(world: World, entity: Entity, definition: EffectDefinition, periodic: PeriodicEffect, stacks: number): void {
+  const attr = periodic.attribute;
+  const op = periodic.op ?? "add";
   const value = Number(periodic.value ?? 0);
   const stackType = periodicStackType(periodic.stackType);
   const amount = stackedValue(value, stacks, stackType);
-  const effectName = String(definition.name ?? definition.id ?? "effect");
+  const effectName = definition.name;
 
   const resources = (entity.components.resources ??= {});
   if (attr === "hp" && amount < 0) {
-    const damageType = String(periodic.damageType ?? definition.damageType ?? definition.id ?? "effect");
+    const damageType = periodic.damageType ?? definition.id;
     world.services.damage.applyDamage(entity.entityId, -amount, damageType, effectName);
     return;
   }
@@ -71,6 +72,6 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Js
   world.log(`${entity.name} 的 ${attr} 周期变化 ${before} -> ${attrs[attr]}`);
 }
 
-function periodicStackType(value: unknown): PeriodicStackType {
+function periodicStackType(value: PeriodicEffect["stackType"]): PeriodicStackType {
   return value === "none" || value === "mul" ? value : "add";
 }

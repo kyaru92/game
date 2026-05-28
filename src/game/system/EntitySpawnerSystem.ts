@@ -1,5 +1,6 @@
 
-import type { EventData, Target } from "../types";
+import type { DeepPartial, EntityRuntimeComponents } from "../../domain/componentTypes";
+import type { EventData } from "../types";
 import type { World } from "../world";
 import { displayItemName } from "../utils";
 
@@ -8,12 +9,12 @@ export class EntitySpawnerSystem {
     world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
   }
 
-  private onItemActivation(event: EventData): void {
+  private onItemActivation(event: EventData<"OnItemActivation">): void {
     const item = this.world.items[event.data.itemId];
     const spawner = item.components.entity_spawner;
     if (!spawner) return;
 
-    const target = event.data.target as Target;
+    const target = event.data.target;
     if (target.kind !== "position" || !target.position) {
       this.world.log(`${displayItemName(item)} 需要位置目标。`);
       return;
@@ -34,21 +35,15 @@ export class EntitySpawnerSystem {
       return;
     }
 
-    const prototype = String(spawner.prototype ?? spawner.entity ?? "");
-    if (!prototype) {
-      this.world.log(`${displayItemName(item)} 的 entity_spawner 缺少 prototype。`);
-      return;
-    }
-
-    const entity = this.world.createEntity(prototype, {
-      entityId: spawner.entityId ? String(spawner.entityId) : undefined,
-      name: spawner.name ? String(spawner.name) : undefined,
+    const entity = this.world.createEntity(spawner.prototype, {
+      entityId: spawner.entityId,
+      name: spawner.name,
       position: { x, y },
-      overrides: spawner.overrides ?? {},
+      overrides: (spawner.overrides ?? {}) as DeepPartial<EntityRuntimeComponents>,
     });
     const color = String(spawner.color ?? entity.components.display?.color ?? "#fb923c");
     this.world.services.vfx.addBurst(entity.entityId, color);
     this.world.services.vfx.addFloatingText(entity.entityId, entity.name, color);
-    this.world.log(`${this.world.entityName(String(event.data.actorId))} 使用 ${displayItemName(item)}，在 (${x},${y}) 生成 ${entity.name}。`);
+    this.world.log(`${this.world.entityName(event.data.actorId)} 使用 ${displayItemName(item)}，在 (${x},${y}) 生成 ${entity.name}。`);
   }
 }

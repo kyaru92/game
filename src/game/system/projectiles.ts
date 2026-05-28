@@ -1,5 +1,14 @@
-
-import type { Entity, JsonObj, Target } from "../types";
+import type {
+  AmmoRound,
+  DamageApplier,
+  EffectApplier,
+  FirearmComponent,
+  ProjectileConfig,
+  ProjectileLauncherComponent,
+  ProjectilePayload,
+  ProjectileRuntimeComponent,
+} from "../../domain/componentTypes";
+import type { Entity, Target } from "../types";
 import type { World } from "../world";
 import { deepClone, normalizeArray } from "../utils";
 import { cloneOptional, roundCoord } from "./common";
@@ -13,7 +22,7 @@ export interface ProjectileLaunchOptions {
   color: string;
   glyph: string;
   radius: number;
-  payload: JsonObj;
+  payload: ProjectilePayload;
 }
 
 export function launchProjectile(world: World, options: ProjectileLaunchOptions): boolean {
@@ -87,20 +96,20 @@ function targetPoint(world: World, target: Target): { x: number; y: number } | u
   return undefined;
 }
 
-export function buildFirearmProjectilePayload(firearm: JsonObj, round: JsonObj): JsonObj {
-  const projectile = { ...(cloneOptional(round.projectile) ?? {}) };
-  projectile.speed = Number(projectile.speed ?? firearm.projectileSpeed ?? 18);
-  projectile.maxDistance = Number(projectile.maxDistance ?? firearm.maxDistance ?? firearm.range ?? 12);
-  projectile.pierce = Number(projectile.pierce ?? firearm.pierce ?? 0);
+export function buildFirearmProjectilePayload(firearm: FirearmComponent, round: AmmoRound): ProjectilePayload {
+  const projectile: ProjectileConfig = { ...(cloneOptional(round.projectile) ?? {}) };
+  projectile.speed = projectile.speed ?? firearm.projectileSpeed ?? 18;
+  projectile.maxDistance = projectile.maxDistance ?? firearm.maxDistance ?? 12;
+  projectile.pierce = projectile.pierce ?? firearm.pierce ?? 0;
 
-  const damageAppliers = normalizeArray(round.damage_applier).map((applier) => deepClone(applier));
-  const baseDamage = Number(round.damage ?? 0);
+  const damageAppliers: DamageApplier[] = normalizeArray(round.damage_applier).map((applier) => deepClone(applier));
+  const baseDamage = round.damage ?? 0;
   const damage = (baseDamage + Number(firearm.damageBonus ?? 0)) * Number(firearm.damageMultiplier ?? 1);
   if (damage > 0) {
-    const radius = Number(round.areaRadius ?? round.impactRadius ?? 0);
+    const radius = Number(round.impactRadius ?? 0);
     damageAppliers.unshift({
       amount: Number(damage.toFixed(2)),
-      damageType: String(round.damageType ?? firearm.damageType ?? "generic"),
+      damageType: round.damageType ?? firearm.damageType ?? "generic",
       target: radius > 0 ? "impact_area" : "impact_target",
       radius,
     });
@@ -110,22 +119,22 @@ export function buildFirearmProjectilePayload(firearm: JsonObj, round: JsonObj):
     projectile,
     damage_applier: damageAppliers,
     effect_applier: cloneOptional(round.effect_applier),
-    impactRadius: round.impactRadius ?? round.areaRadius,
+    impactRadius: round.impactRadius,
   };
 }
 
-export function projectileConfigFromLauncher(launcher: JsonObj): JsonObj {
-  const projectile = { ...(cloneOptional(launcher.projectile) ?? {}) };
-  projectile.speed = Number(projectile.speed ?? launcher.speed ?? 10);
-  projectile.maxDistance = Number(projectile.maxDistance ?? launcher.maxDistance ?? 12);
-  projectile.pierce = Number(projectile.pierce ?? launcher.pierce ?? 0);
+export function projectileConfigFromLauncher(launcher: ProjectileLauncherComponent): ProjectileConfig {
+  const projectile: ProjectileConfig = { ...(cloneOptional(launcher.projectile) ?? {}) };
+  projectile.speed = projectile.speed ?? launcher.speed ?? 10;
+  projectile.maxDistance = projectile.maxDistance ?? launcher.maxDistance ?? 12;
+  projectile.pierce = projectile.pierce ?? launcher.pierce ?? 0;
   return projectile;
 }
 
 export function findProjectileHit(world: World, projectileEntity: Entity, from: { x: number; y: number }, to: { x: number; y: number }): { entity: Entity; position: { x: number; y: number } } | undefined {
   const projectile = projectileEntity.components.projectile;
   if (!projectile) return undefined;
-  const ignored = new Set<string>([projectileEntity.entityId, String(projectile.sourceEntityId ?? ""), ...(projectile.hitEntityIds ?? [])]);
+  const ignored = new Set<string>([projectileEntity.entityId, projectile.sourceEntityId, ...(projectile.hitEntityIds ?? [])]);
   let best: { entity: Entity; position: { x: number; y: number }; distanceAlong: number } | undefined;
   for (const entity of Object.values(world.entities)) {
     if (ignored.has(entity.entityId) || entity.components.projectile) continue;
@@ -163,10 +172,10 @@ function distanceToSegment(px: number, py: number, from: { x: number; y: number 
   };
 }
 
-export function applyProjectilePayload(world: World, projectile: JsonObj, impactTarget: Target, impactPosition: [number, number]): void {
-  const payload = projectile.payload ?? {};
-  const sourceEntityId = String(projectile.sourceEntityId ?? "");
-  const sourceName = String(projectile.displayName ?? "投射物");
+export function applyProjectilePayload(world: World, projectile: ProjectileRuntimeComponent, impactTarget: Target, impactPosition: [number, number]): void {
+  const payload = projectile.payload;
+  const sourceEntityId = projectile.sourceEntityId;
+  const sourceName = projectile.displayName ?? "投射物";
   for (const applier of normalizeArray(payload.damage_applier)) {
     applyProjectileDamage(world, applier, sourceEntityId, sourceName, impactTarget, impactPosition);
   }
@@ -175,12 +184,12 @@ export function applyProjectilePayload(world: World, projectile: JsonObj, impact
   }
 }
 
-function applyProjectileDamage(world: World, applier: JsonObj, sourceEntityId: string, sourceName: string, impactTarget: Target, impactPosition: [number, number]): void {
-  const amount = Number(applier.amount ?? applier.damage ?? 0);
+function applyProjectileDamage(world: World, applier: DamageApplier, sourceEntityId: string, sourceName: string, impactTarget: Target, impactPosition: [number, number]): void {
+  const amount = applier.amount;
   if (!Number.isFinite(amount) || amount <= 0) return;
-  const damageType = String(applier.damageType ?? "generic");
-  const targetMode = String(applier.target ?? "impact_target");
-  const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+  const damageType = applier.damageType;
+  const targetMode = applier.target ?? "impact_target";
+  const radius = Number(applier.radius ?? 0);
   if (targetMode === "impact_area" || targetMode === "activation_area" || radius > 0) {
     const targets = resolveAreaTargets(world, { kind: "position", position: impactPosition }, radius || 2);
     if (!targets.length) world.log(`${sourceName} 的范围伤害没有命中目标。`);
@@ -191,13 +200,12 @@ function applyProjectileDamage(world: World, applier: JsonObj, sourceEntityId: s
   if (target.kind === "entity" && target.entityId) world.services.damage.applyDamage(target.entityId, amount, damageType, sourceName);
 }
 
-function applyProjectileEffect(world: World, applier: JsonObj, sourceEntityId: string, sourceItemId: string | undefined, impactTarget: Target, impactPosition: [number, number]): void {
+function applyProjectileEffect(world: World, applier: EffectApplier, sourceEntityId: string, sourceItemId: string | undefined, impactTarget: Target, impactPosition: [number, number]): void {
   const chance = Number(applier.chance ?? 1);
   if (Math.random() > chance) return;
-  const effectId = String(applier.kind ?? applier.effectId ?? "");
-  if (!effectId) return;
-  const targetMode = String(applier.target ?? "impact_target");
-  const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+  const effectId = applier.kind;
+  const targetMode = applier.target ?? "impact_target";
+  const radius = Number(applier.radius ?? 0);
   if (targetMode === "impact_area" || targetMode === "activation_area" || radius > 0) {
     const targets = resolveAreaTargets(world, { kind: "position", position: impactPosition }, radius || 2);
     if (!targets.length) world.log(`范围效果 ${effectId} 没有命中目标。`);
@@ -223,7 +231,7 @@ function applyProjectileEffect(world: World, applier: JsonObj, sourceEntityId: s
   });
 }
 
-function resolveProjectileTarget(world: World, mode: string, sourceEntityId: string, impactTarget: Target): Target {
+function resolveProjectileTarget(world: World, mode: NonNullable<DamageApplier["target"]> | NonNullable<EffectApplier["target"]>, sourceEntityId: string, impactTarget: Target): Target {
   if (mode === "impact_target" || mode === "activation_target") return impactTarget;
   return resolveEffectTarget(world, mode, sourceEntityId, impactTarget);
 }

@@ -1,5 +1,5 @@
-import type { LootComponent, LootEntry, LootGuaranteeEntry } from "../../domain/componentTypes";
-import type { Entity, EventData, ItemInstance, JsonObj } from "../types";
+import type { LootComponent, LootContainerRuntime, LootEntry, LootGuaranteeEntry } from "../../domain/componentTypes";
+import type { Entity, EventData, ItemInstance } from "../types";
 import type { World } from "../world";
 import { displayItemName, itemCategory } from "../utils";
 
@@ -31,22 +31,6 @@ export interface LootContainerView {
 interface GeneratedLoot {
   protoId: string;
   quantity?: number;
-}
-
-interface LootContainerRuntime {
-  title?: string;
-  sourceEntityId?: string;
-  sourceEntityName?: string;
-  createdAtMs?: number;
-  hiddenItemIds: string[];
-  revealedItemIds: string[];
-  currentSearch?: {
-    actorId: string;
-    itemId: string;
-    startedAtMs: number;
-    finishAtMs: number;
-    durationMs: number;
-  };
 }
 
 export class LootSystem {
@@ -150,7 +134,7 @@ export class LootSystem {
   }
 
   cancelSearch(actorId: string, containerId?: string, reason = "搜索已中断"): boolean {
-    const entities = containerId ? [this.world.entities[containerId]].filter(Boolean) : Object.values(this.world.entities);
+    const entities = containerId ? [this.world.entities[containerId]].filter((entity): entity is Entity => Boolean(entity)) : Object.values(this.world.entities);
     for (const entity of entities) {
       const container = lootContainer(entity);
       if (!container?.currentSearch || container.currentSearch.actorId !== actorId) continue;
@@ -208,28 +192,28 @@ export class LootSystem {
     };
   }
 
-  private onEntityDeath(event: EventData): void {
-    const entity = event.data.entity as Entity | undefined;
-    if (!entity || entity.entityId === "player") return;
-    const loot = entity.components.loot as LootComponent | undefined;
+  private onEntityDeath(event: EventData<"OnEntityDeath">): void {
+    const entity = event.data.entity;
+    if (entity.entityId === "player") return;
+    const loot = entity.components.loot;
     if (!loot) return;
 
     const spawnChance = clamp01(Number(loot.spawnChance ?? 1));
     if (Math.random() > spawnChance) return;
 
-    const position = event.data.position as { x: number; y: number } | undefined;
+    const position = event.data.position;
     if (!position) return;
 
     const generated = this.rollLoot(loot);
     if (!generated.length) return;
 
-    const containerProtoId = String(loot.containerPrototype ?? DEFAULT_CONTAINER_PROTO_ID);
+    const containerProtoId = loot.containerPrototype ?? DEFAULT_CONTAINER_PROTO_ID;
     if (!this.world.entityPrototypes[containerProtoId]) {
       this.world.log(`${entity.name} 的 loot.containerPrototype 不存在：${containerProtoId}`);
       return;
     }
 
-    const spawnPosition = this.findContainerPosition(containerProtoId, position, event.data.bounds as { width?: number; height?: number } | undefined);
+    const spawnPosition = this.findContainerPosition(containerProtoId, position, event.data.bounds);
     const container = this.world.createEntity(containerProtoId, {
       position: spawnPosition,
       overrides: {
@@ -300,7 +284,7 @@ export class LootSystem {
 
   private generatedLoot(entry: LootEntry | LootGuaranteeEntry): GeneratedLoot {
     return {
-      protoId: String(entry.item),
+      protoId: entry.item,
       quantity: rollQuantity(entry.quantity),
     };
   }
@@ -356,11 +340,11 @@ export class LootSystem {
 }
 
 function lootContainer(entity: Entity | undefined): LootContainerRuntime | undefined {
-  return entity?.components.loot_container as LootContainerRuntime | undefined;
+  return entity?.components.loot_container;
 }
 
 function interactionRange(entity: Entity): number {
-  return Math.max(0, Number((entity.components.interactable as JsonObj | undefined)?.range ?? DEFAULT_INTERACTION_RANGE));
+  return Math.max(0, Number(entity.components.interactable?.range ?? DEFAULT_INTERACTION_RANGE));
 }
 
 function searchDurationMs(item: ItemInstance): number {
@@ -392,4 +376,3 @@ function weightedPick<T extends { weight?: number }>(items: readonly T[]): T | u
 function clamp01(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 }
-

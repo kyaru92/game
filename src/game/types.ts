@@ -1,13 +1,15 @@
 import type {
   ActiveEffectRuntime,
   EffectModifier,
+  EffectOverride,
   EntityRuntimeComponents,
   ItemRuntimeComponents,
   PeriodicEffect,
   Target,
+  TargetSelector,
 } from "../domain/componentTypes";
+import type { CollisionBox } from "./services";
 
-export type JsonObj = Record<string, any>;
 export type { Target };
 
 export interface TargetContext {
@@ -29,10 +31,49 @@ export interface Entity {
   components: EntityRuntimeComponents;
 }
 
-export interface EventData {
-  name: string;
-  data: JsonObj;
+export interface BeforeItemActivationEventData {
+  actorId: string;
+  itemId: string;
+  inventoryIndex: number;
+  target: Target;
+  cancelReason?: string;
 }
+
+export interface OnItemActivationEventData {
+  actorId: string;
+  itemId: string;
+  inventoryIndex: number;
+  target: Target;
+}
+
+export interface ApplyEffectRequestEventData {
+  effectId: string;
+  targetEntityId: string;
+  sourceEntityId?: string;
+  sourceItemId?: string;
+  effectOverrides?: EffectOverride;
+}
+
+export interface OnEntityDeathEventData {
+  entityId: string;
+  entity: Entity;
+  position?: { x: number; y: number };
+  bounds: CollisionBox;
+}
+
+export interface GameEventMap {
+  BeforeItemActivation: BeforeItemActivationEventData;
+  OnItemActivation: OnItemActivationEventData;
+  ApplyEffectRequest: ApplyEffectRequestEventData;
+  OnEntityDeath: OnEntityDeathEventData;
+}
+
+export type EventData<K extends keyof GameEventMap = keyof GameEventMap> = {
+  [P in keyof GameEventMap]: {
+    name: P;
+    data: GameEventMap[P];
+  };
+}[K];
 
 export interface VisualEvent {
   id: number;
@@ -57,10 +98,10 @@ export interface EffectSummary {
   color: string;
   modifiers: EffectModifier[];
   periodicEffect?: PeriodicEffect;
-  behavior: string;
+  behavior: "refresh_duration" | "independent" | "none";
 }
 
-export type { ActiveEffectRuntime };
+export type { ActiveEffectRuntime, TargetSelector };
 
 export interface GameRuntime {
   world: import("./world").World;

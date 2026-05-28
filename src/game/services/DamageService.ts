@@ -1,5 +1,7 @@
-import type { JsonObj } from "../types";
+import type { EntityRuntimeComponents } from "../../domain/componentTypes";
 import type { World } from "../world";
+
+type DamageableComponent = NonNullable<EntityRuntimeComponents["damageable"]>;
 
 export class DamageService {
   constructor(private readonly world: World) {}
@@ -33,21 +35,21 @@ export class DamageService {
     const delta = before - Number(resources.hp);
     if (delta <= 0) return false;
 
-    this.world.vfx.addFloatingText(entityId, `-${formatNumber(delta)} hp`, "#fb7185");
+    this.world.services.vfx.addFloatingText(entityId, `-${formatNumber(delta)} hp`, "#fb7185");
     this.world.log(`${entity.name} 受到 ${sourceName}：${normalizedType} ${formatNumber(delta)}，hp ${formatNumber(before)} -> ${formatNumber(resources.hp)}。`);
     return true;
   }
 }
 
-function isDamageTypeAllowed(damageable: JsonObj, damageType: string): boolean {
-  const allowed = stringList(damageable.allowedDamageTypes ?? damageable.vulnerableTo);
-  const immune = stringList(damageable.immuneDamageTypes ?? damageable.immuneTo);
+function isDamageTypeAllowed(damageable: DamageableComponent, damageType: string): boolean {
+  const allowed = stringList(damageable.allowedDamageTypes);
+  const immune = stringList(damageable.immuneDamageTypes);
   if (immune.includes("*") || immune.includes(damageType)) return false;
   return allowed.length === 0 || allowed.includes("*") || allowed.includes(damageType);
 }
 
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.map((item) => String(item).trim().toLowerCase()).filter(Boolean) : [];
+function stringList(value: string[] | undefined): string[] {
+  return value ? value.map((item) => item.trim().toLowerCase()).filter(Boolean) : [];
 }
 
 function formatNumber(value: number): string {

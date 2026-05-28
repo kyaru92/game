@@ -1,7 +1,8 @@
-import { parse } from "jsonc-parser";
+import { parse, type ParseError } from "jsonc-parser";
 import { applyItemPatches, getCommandSuggestions, parseGiveCommandLine } from "./commandLanguage";
 import type { CommandSuggestion } from "./commandLanguage";
-import type { GameRuntime, JsonObj } from "./types";
+import type { DeepPartial, EntityRuntimeComponents, ItemRuntimeComponents } from "../domain/componentTypes";
+import type { GameRuntime } from "./types";
 import { deepClone, formatCoord } from "./utils";
 
 const COMMAND_HELP = [
@@ -12,10 +13,10 @@ const COMMAND_HELP = [
   "  component <entity> <componentName> <json-value>   # 给实体写入/覆盖自定义 component",
   "    例：component slime ai {\"state\":\"patrol\",\"range\":5}",
   "  item <owner> <protoId> <components-json>          # 创建自定义 component 物品并放入背包",
-  "    例：item @player debug-potion {\"display\":{\"name\":\"调试药水\"},\"targeting\":{\"mode\":\"self\"},\"activation\":{\"max\":3},\"effect_applier\":[{\"kind\":\"regeneration\",\"target\":\"self\"}]}",
+  "    例：item @player debug-potion {\"display\":{\"name\":\"调试药水\"},\"targeting\":{\"mode\":\"self\"},\"activation\":{\"maxCharges\":3},\"effect_applier\":[{\"kind\":\"regeneration\",\"target\":\"self\"}]}",
   "  give <entity> <itemProtoId>[component:field=value;!component]",
-  "    例：give @player poison-cloud-grenade[targeting:range=60;activation:max=5,cooldownMs=300;!economy]",
-  "    例：give @player debug-potion[display:name=调试药水;targeting:mode=self;activation:max=3]  # 注册运行时自定义 prototype 并给予实例",
+  "    例：give @player poison-cloud-grenade[targeting:range=60;activation:maxCharges=5,cooldownMs=300;!economy]",
+  "    例：give @player debug-potion[display:name=调试药水;targeting:mode=self;activation:maxCharges=3]  # 注册运行时自定义 prototype 并给予实例",
   "  reload <entity> [slotIndex]                       # 装填指定槽位枪械；slotIndex 从 1 开始",
   "  apply <effectId> <entity>",
   "  damage <entity> <amount> [damageType] / heal <entity> <amount>",
@@ -109,7 +110,7 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
   const entity = world.createEntity(protoId, {
     entityId: maybeEntityId,
     position: { x, y },
-    overrides: overrides as JsonObj,
+    overrides: overrides as DeepPartial<EntityRuntimeComponents>,
   });
   if (!world.services.spatial.canEntityOccupy(entity.entityId, x, y)) {
     delete world.entities[entity.entityId];
@@ -142,7 +143,7 @@ function createCustomItem(runtime: GameRuntime, raw: string, tokens: string[]): 
   if (jsonStart < 0) throw new Error("缺少 components-json");
   const components = parseJsonValue(raw.slice(jsonStart));
   if (typeof components !== "object" || Array.isArray(components)) throw new Error("components-json 必须是对象");
-  world.giveCustomItem(ownerId, protoId, components as JsonObj);
+  world.giveCustomItem(ownerId, protoId, components as ItemRuntimeComponents);
 }
 
 function giveItem(runtime: GameRuntime, raw: string): void {
@@ -164,7 +165,7 @@ function giveItem(runtime: GameRuntime, raw: string): void {
   world.giveCustomItem(entityId, parsed.protoId, components);
 }
 
-function preventVariantAutoStack(components: JsonObj): void {
+function preventVariantAutoStack(components: ItemRuntimeComponents): void {
   const stacking = components.stacking;
   if (stacking && typeof stacking === "object" && !Array.isArray(stacking)) {
     stacking.max = 1;
@@ -234,7 +235,7 @@ function findJsonStart(raw: string): number {
 }
 
 function parseJsonValue(text: string): unknown {
-  const errors: any[] = [];
+  const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length) throw new Error("JSON/JSONC 解析失败");
   return value;

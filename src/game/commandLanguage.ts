@@ -1,8 +1,15 @@
-import { parse } from "jsonc-parser";
+import { parse, type ParseError } from "jsonc-parser";
 import { itemPrototypeComponentsSchema } from "../domain/componentSchemas";
-import type { ItemDefinition } from "../domain/componentTypes";
-import type { GameRuntime, JsonObj } from "./types";
-import { deepClone } from "./utils";
+import type { ItemDefinition, ItemRuntimeComponents, UnknownObject } from "../domain/componentTypes";
+import type { GameRuntime } from "./types";
+import { deepClone, isPlainObject } from "./utils";
+
+type SchemaNode = {
+  properties?: Record<string, SchemaNode>;
+  oneOf?: readonly SchemaNode[];
+  items?: SchemaNode;
+  enum?: readonly unknown[];
+} & Record<string, unknown>;
 
 export interface CommandSuggestion {
   label: string;
@@ -34,9 +41,9 @@ const COMMAND_TEMPLATES: CommandSuggestion[] = [
   { label: "entities", insert: "entities", description: "列出当前世界里的实体" },
   { label: "spawn", insert: 'spawn hatched-monster slime_1 6 6 {"resources":{"hp":50,"max_hp":50}}', description: "按 entity prototype 生成实体，可附加 overrides" },
   { label: "component", insert: 'component slime ai {"state":"patrol","range":5}', description: "给实体写入/覆盖自定义 component" },
-  { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"max":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
+  { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"maxCharges":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
   { label: "give", insert: "give @player poison-cloud-grenade", description: "给予物品；支持 proto[component:field=value;!component] 变体" },
-  { label: "give variant", insert: 'give @player debug-potion[display:name="调试药水";targeting:mode=self;activation:max=3;effect_applier=[{"kind":"regeneration","target":"self"}]]', description: "创建/给予运行时自定义原型或已有原型变体" },
+  { label: "give variant", insert: 'give @player debug-potion[display:name="调试药水";targeting:mode=self;activation:maxCharges=3;effect_applier=[{"kind":"regeneration","target":"self"}]]', description: "创建/给予运行时自定义原型或已有原型变体" },
   { label: "reload", insert: "reload @player 9", description: "装填指定物品槽位的枪械" },
   { label: "apply", insert: "apply poison @dummy", description: "直接对实体施加 effect" },
   { label: "damage", insert: "damage crate-1 15 impact", description: "造成指定类型伤害；木箱只接受 impact/fire" },
@@ -78,7 +85,7 @@ export function parseItemSpec(spec: string): { protoId: string; patches: ItemPat
   return { protoId, patches: parseItemPatches(patchText), hasPatches: true };
 }
 
-export function applyItemPatches(baseComponents: JsonObj, patches: ItemPatch[]): JsonObj {
+export function applyItemPatches(baseComponents: ItemRuntimeComponents, patches: ItemPatch[]): ItemRuntimeComponents {
   const components = deepClone(baseComponents);
   for (const patch of patches) {
     if (patch.op === "set") setPath(components, patch.path, patch.value);
@@ -158,30 +165,30 @@ function parseCommandValue(text: string): unknown {
 }
 
 function parseJsonLike(text: string): unknown {
-  const errors: any[] = [];
+  const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length) throw new Error(`JSON/JSONC value 解析失败：${text}`);
   return value;
 }
 
-function setPath(root: JsonObj, path: string[], value: unknown): void {
-  let target: JsonObj = root;
+function setPath(root: ItemRuntimeComponents, path: string[], value: unknown): void {
+  let target: UnknownObject = root;
   for (let index = 0; index < path.length - 1; index += 1) {
     const key = path[index];
     const next = target[key];
-    if (!next || typeof next !== "object" || Array.isArray(next)) target[key] = {};
-    target = target[key] as JsonObj;
+    if (!isPlainObject(next)) target[key] = {};
+    target = target[key] as UnknownObject;
   }
   target[path[path.length - 1]] = deepClone(value);
 }
 
-function removePath(root: JsonObj, path: string[]): void {
+function removePath(root: ItemRuntimeComponents, path: string[]): void {
   let target: unknown = root;
   for (let index = 0; index < path.length - 1; index += 1) {
     if (!target || typeof target !== "object" || Array.isArray(target)) return;
-    target = (target as JsonObj)[path[index]];
+    target = (target as UnknownObject)[path[index]];
   }
-  if (target && typeof target === "object" && !Array.isArray(target)) delete (target as JsonObj)[path[path.length - 1]];
+  if (isPlainObject(target)) delete target[path[path.length - 1]];
 }
 
 function parsePath(text: string): string[] {
@@ -346,7 +353,7 @@ function valueCandidates(runtime: GameRuntime, component: string, fieldPath: str
   if (component === "effect_applier" && last === "kind") {
     return Object.keys(runtime.world.effects).sort().map((effectId) => ({ label: effectId, insert: effectId, description: "effect id" }));
   }
-  if (component === "entity_spawner" && (last === "prototype" || last === "entity")) {
+  if (component === "entity_spawner" && last === "prototype") {
     return Object.keys(runtime.world.entityPrototypes).sort().map((entityId) => ({ label: entityId, insert: entityId, description: "entity prototype id" }));
   }
 
@@ -355,11 +362,11 @@ function valueCandidates(runtime: GameRuntime, component: string, fieldPath: str
   return enumValues.map((value: unknown) => ({ label: String(value), insert: String(value), description: "可选值" }));
 }
 
-function itemComponentSchemas(): Record<string, any> {
-  return (itemPrototypeComponentsSchema as any).properties ?? {};
+function itemComponentSchemas(): Record<string, SchemaNode> {
+  return (itemPrototypeComponentsSchema as unknown as SchemaNode).properties ?? {};
 }
 
-function componentSchema(component: string): any {
+function componentSchema(component: string): SchemaNode | undefined {
   return itemComponentSchemas()[component];
 }
 
@@ -368,23 +375,24 @@ function componentFieldNames(component: string): string[] {
   return Object.keys(schema?.properties ?? {});
 }
 
-function schemaAtPath(component: string, path: string[]): any {
+function schemaAtPath(component: string, path: string[]): SchemaNode | undefined {
   let schema = objectLikeSchema(componentSchema(component));
   for (const segment of path) {
     if (!schema) return undefined;
-    schema = objectLikeSchema(schema).properties?.[segment] ?? schema.properties?.[segment];
+    const objectSchema = objectLikeSchema(schema);
+    schema = objectSchema?.properties?.[segment];
     if (schema?.oneOf || schema?.items) schema = objectLikeSchema(schema);
   }
   return schema;
 }
 
-function objectLikeSchema(schema: any): any {
+function objectLikeSchema(schema: SchemaNode | undefined): SchemaNode | undefined {
   if (!schema) return undefined;
   if (schema.properties) return schema;
   if (Array.isArray(schema.oneOf)) {
     for (const option of schema.oneOf) {
-      if (option?.properties) return option;
-      if (option?.items?.properties) return option.items;
+      if (option.properties) return option;
+      if (option.items?.properties) return option.items;
     }
   }
   if (schema.items?.properties) return schema.items;

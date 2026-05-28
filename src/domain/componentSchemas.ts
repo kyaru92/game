@@ -170,7 +170,6 @@ export const effectApplierSchema = {
       description: "效果施加目标。",
     },
     radius: { type: "number", minimum: 0, description: "范围效果半径。" },
-    areaRadius: { type: "number", minimum: 0, description: "radius 的兼容别名。" },
     overrides: effectOverrideSchema,
   },
 } as const satisfies JSONSchema;
@@ -181,7 +180,6 @@ export const damageApplierSchema = {
   required: ["amount", "damageType"],
   properties: {
     amount: { type: "number", minimum: 0, description: "造成的伤害数值。" },
-    damage: { type: "number", minimum: 0, description: "amount 的兼容别名。" },
     damageType: { type: "string", description: "伤害类型。" },
     target: {
       type: "string",
@@ -190,7 +188,6 @@ export const damageApplierSchema = {
       description: "伤害目标。",
     },
     radius: { type: "number", minimum: 0, description: "可选范围伤害半径。" },
-    areaRadius: { type: "number", minimum: 0, description: "radius 的兼容别名。" },
   },
 } as const satisfies JSONSchema;
 
@@ -231,8 +228,7 @@ export const ammoSchema = {
     ammoType: { type: "string", description: "弹药口径/类型。" },
     damage: { type: "number", minimum: 0, description: "子弹基础伤害。" },
     damageType: { type: "string", description: "子弹基础伤害类型。" },
-    areaRadius: { type: "number", minimum: 0, description: "命中后基础伤害的范围半径。" },
-    impactRadius: { type: "number", minimum: 0, description: "命中效果的默认范围半径。" },
+    impactRadius: { type: "number", minimum: 0, description: "命中后基础伤害和命中效果的范围半径。" },
     projectile: projectileConfigSchema,
     damage_applier: { ...damageApplierListSchema, description: "子弹命中时追加的伤害段。" },
     effect_applier: { ...applierListSchema, description: "子弹命中时施加的效果。" },
@@ -241,15 +237,12 @@ export const ammoSchema = {
 
 export const firearmPrototypeSchema = {
   type: "object",
-  additionalProperties: true,
+  additionalProperties: false,
   required: ["acceptedAmmoTypes", "magazineSize", "reloadDurationMs"],
   description: "枪械配置。",
   properties: {
     acceptedAmmoTypes: { type: "array", items: { type: "string" }, description: "可装填的弹药类型列表。" },
-    ammoTypes: { type: "array", items: { type: "string" }, description: "acceptedAmmoTypes 的兼容别名。" },
-    ammoType: { type: "string", description: "单一弹药类型的兼容写法。" },
     magazineSize: { type: "integer", minimum: 1, description: "弹匣容量。" },
-    capacity: { type: "integer", minimum: 1, description: "magazineSize 的兼容别名。" },
     reloadDurationMs: { type: "integer", minimum: 0, description: "装填耗时，单位毫秒。" },
     partialReload: { type: "boolean", default: true, description: "是否允许半弹匣补装。" },
     allowMixedMagazine: { type: "boolean", default: true, description: "是否允许弹匣内混装不同弹种。" },
@@ -258,7 +251,6 @@ export const firearmPrototypeSchema = {
     damageType: { type: "string", description: "枪械默认伤害类型。" },
     projectileSpeed: { type: "number", minimum: 0.1, description: "默认投射物速度。" },
     maxDistance: { type: "number", minimum: 0.1, description: "默认最大射程。" },
-    range: { type: "number", minimum: 0.1, description: "maxDistance 的兼容别名。" },
     pierce: { type: "integer", minimum: 0, description: "默认穿透数量。" },
     spreadDeg: { type: "number", minimum: 0, description: "预留：散布角度。" },
     projectileColor: { type: "string", description: "枪械发射投射物默认颜色。" },
@@ -268,14 +260,14 @@ export const firearmPrototypeSchema = {
 
 export const ammoRoundSchema = {
   type: "object",
-  additionalProperties: true,
+  additionalProperties: false,
+  required: ["ammoProtoId", "displayName", "ammoType"],
   properties: {
     ammoProtoId: { type: "string" },
     displayName: { type: "string" },
     ammoType: { type: "string" },
     damage: { type: "number" },
     damageType: { type: "string" },
-    areaRadius: { type: "number" },
     impactRadius: { type: "number" },
     damage_applier: damageApplierListSchema,
     effect_applier: applierListSchema,
@@ -350,7 +342,6 @@ export const activationPrototypeSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    max: { type: "integer", minimum: 0, description: "兼容字段：解释为 maxCharges。" },
     maxCharges: { type: "integer", minimum: 0, description: "最大充能/可使用次数。" },
     charges: { type: "integer", minimum: 0, description: "当前剩余充能/可使用次数。" },
     cooldownMs: { type: "integer", minimum: 0, description: "每次激活后的冷却时间。" },
@@ -535,7 +526,6 @@ export const itemPrototypeComponentsSchema = {
       required: ["prototype"],
       properties: {
         prototype: { type: "string", description: "引用 entity prototype id。" },
-        entity: { type: "string", description: "prototype 的兼容别名。" },
         entityId: { type: "string", pattern: prototypeIdPattern, description: "可选：指定生成实体 id。" },
         name: { type: "string", description: "可选：覆盖生成实体显示名称。" },
         color: { type: "string", description: "可选：覆盖生成时的视觉提示颜色。" },

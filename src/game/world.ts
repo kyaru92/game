@@ -1,9 +1,17 @@
 import { EventBus } from "./eventBus";
-import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
-import type { Entity, ItemInstance, JsonObj, VisualEvent } from "./types";
+import type {
+  DeepPartial,
+  EffectDefinitions,
+  EntityDefinitions,
+  EntityRuntimeComponents,
+  ItemDefinitions,
+  ItemRuntimeComponents,
+  UnknownObject,
+} from "../domain/componentTypes";
+import type { Entity, ItemInstance, VisualEvent } from "./types";
 import { deepClone, deepMerge, initEntityRuntimeState, initItemRuntimeState } from "./utils";
 import { DamageService, InventoryService, SpatialService, VisualEventService } from "./services";
-import type { AddInventoryItemOptions, CollisionBox, MoveOptions } from "./services";
+import type { CollisionBox } from "./services";
 
 export type { AddInventoryItemOptions, CollisionBox, MoveOptions } from "./services";
 
@@ -11,7 +19,7 @@ export interface CreateEntityOptions {
   entityId?: string;
   name?: string;
   position?: { x: number; y: number };
-  overrides?: JsonObj;
+  overrides?: DeepPartial<EntityRuntimeComponents>;
 }
 
 export interface GameServices {
@@ -54,22 +62,6 @@ export class World {
     };
   }
 
-  get inventoryService(): InventoryService {
-    return this.services.inventory;
-  }
-
-  get spatial(): SpatialService {
-    return this.services.spatial;
-  }
-
-  get damage(): DamageService {
-    return this.services.damage;
-  }
-
-  get vfx(): VisualEventService {
-    return this.services.vfx;
-  }
-
   nowMs(): number {
     return performance.now();
   }
@@ -88,7 +80,7 @@ export class World {
   createEntity(protoId: string, options: CreateEntityOptions = {}): Entity {
     const proto = this.entityPrototypes[protoId];
     if (!proto) throw new Error(`未知实体原型：${protoId}`);
-    const components = deepMerge(deepClone(proto.components ?? {}), options.overrides ?? {});
+    const components = deepMerge(deepClone(proto.components ?? {}), (options.overrides ?? {}) as UnknownObject) as EntityRuntimeComponents;
     if (options.position) components.position = { x: options.position.x, y: options.position.y };
     const entity: Entity = {
       entityId: options.entityId ?? this.nextEntityId(protoId),
@@ -148,11 +140,10 @@ export class World {
   createItem(protoId: string): ItemInstance {
     const proto = this.itemPrototype(protoId);
     if (!proto) throw new Error(`未知物品原型：${protoId}`);
-    const item = this.createCustomItem(protoId, deepClone(proto.components ?? {}));
-    return item;
+    return this.createCustomItem(protoId, deepClone(proto.components ?? {}) as ItemRuntimeComponents);
   }
 
-  createCustomItem(protoId: string, components: JsonObj): ItemInstance {
+  createCustomItem(protoId: string, components: ItemRuntimeComponents): ItemInstance {
     const item: ItemInstance = {
       instanceId: `item_${this.nextItemNo++}`,
       protoId,
@@ -168,7 +159,7 @@ export class World {
     return this.services.inventory.addItem(entityId, item, { verb: "获得" });
   }
 
-  giveCustomItem(entityId: string, protoId: string, components: JsonObj): ItemInstance {
+  giveCustomItem(entityId: string, protoId: string, components: ItemRuntimeComponents): ItemInstance {
     const item = this.createCustomItem(protoId, components);
     return this.services.inventory.addItem(entityId, item, { verb: "获得自定义物品" });
   }
@@ -200,87 +191,6 @@ export class World {
       this.services.vfx.addBurst(entity.entityId, "#f43f5e");
       this.removeEntity(entity.entityId, entity.components.obstacle ? "被摧毁" : "生命归零并消失");
     }
-  }
-
-  /** Compatibility wrappers. New game logic should prefer world.services.* directly. */
-  inventory(entityId = "player"): string[] {
-    return this.services.inventory.get(entityId);
-  }
-
-  hotbar(entityId = "player"): Array<string | null> {
-    return this.services.inventory.hotbar(entityId);
-  }
-
-  setHotbarSlot(entityId: string, slotIndex: number, itemId: string | null): boolean {
-    return this.services.inventory.setHotbarSlot(entityId, slotIndex, itemId);
-  }
-
-  equipItem(entityId: string, itemId: string): boolean {
-    return this.services.inventory.equipItem(entityId, itemId);
-  }
-
-  activeItemId(entityId = "player"): string | undefined {
-    return this.services.inventory.activeItemId(entityId);
-  }
-
-  addInventoryItem(entityId: string, item: ItemInstance, options: AddInventoryItemOptions = {}): ItemInstance {
-    return this.services.inventory.addItem(entityId, item, options);
-  }
-
-  removeInventoryItem(entityId: string, itemId: string): void {
-    this.services.inventory.removeItem(entityId, itemId);
-  }
-
-  organizeInventory(entityId: string): void {
-    this.services.inventory.organize(entityId);
-  }
-
-  isInside(x: number, y: number, radius = 0): boolean {
-    return this.services.spatial.isInside(x, y, radius);
-  }
-
-  isBlocked(x: number, y: number): boolean {
-    return this.services.spatial.isBlocked(x, y);
-  }
-
-  entityBounds(entity: Entity, position = entity.components.position ?? { x: 0, y: 0 }): CollisionBox {
-    return this.services.spatial.entityBounds(entity, position);
-  }
-
-  entityRadius(entity: Entity): number {
-    return this.services.spatial.entityRadius(entity);
-  }
-
-  entityAt(x: number, y: number, padding = this.selectionRadius, exceptEntityId?: string): Entity | undefined {
-    return this.services.spatial.entityAt(x, y, padding, exceptEntityId);
-  }
-
-  canEntityOccupy(entityId: string, x: number, y: number): boolean {
-    return this.services.spatial.canEntityOccupy(entityId, x, y);
-  }
-
-  blockingEntityFor(entityId: string, x: number, y: number): Entity | undefined {
-    return this.services.spatial.blockingEntityFor(entityId, x, y);
-  }
-
-  applyDamage(entityId: string, amount: number, damageType = "generic", sourceName = "伤害"): boolean {
-    return this.services.damage.applyDamage(entityId, amount, damageType, sourceName);
-  }
-
-  tryMove(entityId: string, dx: number, dy: number, options: MoveOptions = {}): boolean {
-    return this.services.spatial.tryMove(entityId, dx, dy, options);
-  }
-
-  addFloatingText(entityId: string, text: string, color: string): void {
-    this.services.vfx.addFloatingText(entityId, text, color);
-  }
-
-  addBurst(entityId: string, color: string): void {
-    this.services.vfx.addBurst(entityId, color);
-  }
-
-  addTeleportTrail(from: [number, number], to: [number, number]): void {
-    this.services.vfx.addTeleportTrail(from, to);
   }
 }
 

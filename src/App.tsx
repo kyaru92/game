@@ -633,7 +633,7 @@ export default function App() {
                 setCommandCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
                 setSuggestionIndex(0);
               }}
-              placeholder='help / give @player poison-cloud-grenade[targeting:range=60;activation:max=5;!economy]'
+              placeholder='help / give @player poison-cloud-grenade[targeting:range=60;activation:maxCharges=5;!economy]'
             />
             {showSuggestions && (
               <div className="command-suggestions">
@@ -772,7 +772,7 @@ function Hotbar({ slots, world, activeItemId, onSlot }: { slots: Array<string | 
 
 function hotbarItemStatus(item: ItemInstance): string {
   const firearm = item.components.firearm;
-  if (firearm) return `${(firearm.loadedRounds ?? []).length}/${Math.max(1, Number(firearm.magazineSize ?? firearm.capacity ?? 1))}`;
+  if (firearm) return `${(firearm.loadedRounds ?? []).length}/${firearm.magazineSize}`;
   const stacking = item.components.stacking;
   if (stacking && Number(stacking.max ?? 1) > 1) return `×${stacking.quantity}`;
   const activation = item.components.activation;

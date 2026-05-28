@@ -1,5 +1,5 @@
 
-import type { JsonObj, Target } from "../types";
+import type { BeforeItemActivationEventData, Target } from "../types";
 import type { World } from "../world";
 import { describeTarget, displayItemName } from "../utils";
 import { validateTarget } from "./targeting";
@@ -100,7 +100,7 @@ export class ActivationSystem {
       return;
     }
 
-    const beforeData: JsonObj = {
+    const beforeData: BeforeItemActivationEventData = {
       actorId,
       itemId: item.instanceId,
       inventoryIndex,
