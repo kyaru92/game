@@ -1,6 +1,6 @@
 import { EventBus } from "./eventBus";
 import type { Entity, ItemInstance, JsonObj, VisualEvent } from "./types";
-import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState } from "./utils";
+import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState, isEquipmentItem } from "./utils";
 
 export interface CreateEntityOptions {
   entityId?: string;
@@ -105,6 +105,63 @@ export class World {
     return entity.components.inventory;
   }
 
+  hotbar(entityId = "player"): Array<string | null> {
+    const entity = this.entities[entityId];
+    if (!entity) return [];
+    const inventory = this.inventory(entityId);
+    const hotbar = (entity.components.hotbar ??= {});
+    const rawSize = Number(hotbar.size ?? 7);
+    const size = Math.max(1, Math.min(12, Number.isFinite(rawSize) ? Math.floor(rawSize) : 7));
+    const slots: Array<string | null> = Array.isArray(hotbar.slots) ? hotbar.slots : [];
+    hotbar.size = size;
+    hotbar.slots = slots;
+    while (slots.length < size) slots.push(null);
+    if (slots.length > size) slots.length = size;
+    for (let index = 0; index < slots.length; index += 1) {
+      const itemId = slots[index];
+      if (typeof itemId !== "string" || !inventory.includes(itemId) || !this.items[itemId]) slots[index] = null;
+    }
+    return slots;
+  }
+
+  setHotbarSlot(entityId: string, slotIndex: number, itemId: string | null): boolean {
+    const slots = this.hotbar(entityId);
+    if (slotIndex < 0 || slotIndex >= slots.length) {
+      this.log(`快捷栏槽位不存在：${slotIndex + 1}`);
+      return false;
+    }
+    if (itemId && (!this.items[itemId] || !this.inventory(entityId).includes(itemId))) {
+      this.log(`不能把不在背包中的物品放入快捷栏：${itemId}`);
+      return false;
+    }
+    if (itemId && !this.items[itemId].components.activation && !isEquipmentItem(this.items[itemId])) {
+      this.log(`${displayItemName(this.items[itemId])} 不能放入快捷栏。`);
+      return false;
+    }
+    slots[slotIndex] = itemId;
+    return true;
+  }
+
+  equipItem(entityId: string, itemId: string): boolean {
+    const entity = this.entities[entityId];
+    if (!entity || !this.items[itemId] || !this.inventory(entityId).includes(itemId)) {
+      this.log(`不能装备不在背包中的物品：${itemId}`);
+      return false;
+    }
+    entity.components.loadout ??= {};
+    entity.components.loadout.activeItemId = itemId;
+    return true;
+  }
+
+  activeItemId(entityId = "player"): string | undefined {
+    const entity = this.entities[entityId];
+    const itemId = entity?.components.loadout?.activeItemId;
+    if (typeof itemId !== "string") return undefined;
+    if (this.items[itemId] && this.inventory(entityId).includes(itemId)) return itemId;
+    if (entity?.components.loadout) delete entity.components.loadout.activeItemId;
+    return undefined;
+  }
+
   findEntity(selector: string): string | undefined {
     const aliases: Record<string, string> = {
       "@player": "player",
@@ -153,6 +210,7 @@ export class World {
     const inventory = this.inventory(entityId);
     const index = inventory.indexOf(itemId);
     if (index >= 0) inventory.splice(index, 1);
+    this.clearItemReferences(entityId, itemId);
     delete this.items[itemId];
   }
 
@@ -165,8 +223,27 @@ export class World {
       return merged;
     }
     this.inventory(entityId).push(item.instanceId);
+    this.autoHotbarItem(entityId, item.instanceId);
     this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(item)}${receivedText}。`);
     return item;
+  }
+
+  private autoHotbarItem(entityId: string, itemId: string): void {
+    const item = this.items[itemId];
+    if (!item || (!item.components.activation && !isEquipmentItem(item))) return;
+    const slots = this.hotbar(entityId);
+    if (slots.includes(itemId)) return;
+    const emptyIndex = slots.findIndex((slot) => !slot);
+    if (emptyIndex >= 0) slots[emptyIndex] = itemId;
+  }
+
+  private clearItemReferences(entityId: string, itemId: string): void {
+    const slots = this.hotbar(entityId);
+    for (const [index, slotItemId] of slots.entries()) {
+      if (slotItemId === itemId) slots[index] = null;
+    }
+    const entity = this.entities[entityId];
+    if (entity?.components.loadout?.activeItemId === itemId) delete entity.components.loadout.activeItemId;
   }
 
   private tryMergeStack(entityId: string, item: ItemInstance): ItemInstance | undefined {

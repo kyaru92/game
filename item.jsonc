@@ -6,6 +6,10 @@
                 "description": "恢复 {$attribute[$modifyAttr].name} {$modifyValueRate} 点。固定属性名 {$attribute[hp].name}。",
                 "icon": "/assets/items/adrenaline-injector.png",
             },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["medical", "buff"],
+            },
             "stacking": {
                 "max": 1,
             },
@@ -50,6 +54,10 @@
                 "description": "给自己施加再生效果。",
                 "icon": "/assets/items/regen-serum.png",
             },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["medical"],
+            },
             "stacking": {
                 "max": 3,
             },
@@ -82,6 +90,10 @@
                 "description": "施加不可重叠的专注效果。",
                 "icon": "/assets/items/focus-coffee.png",
             },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["food", "buff"],
+            },
             "economy": {
                 "baseValue": 12,
             },
@@ -111,13 +123,16 @@
                 "description": "向一个实体目标施加中毒。",
                 "icon": "/assets/items/toxic-dart.png",
             },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["throwable", "weapon"],
+            },
             "economy": {
                 "baseValue": 18,
             },
             "targeting": {
                 "mode": "entity",
                 "range": 30,
-                "default": "@dummy",
             },
             "projectile_launcher": {
                 "speed": 12,
@@ -148,6 +163,10 @@
                 "name": "毒雾手雷",
                 "description": "对位置目标投掷，在半径 2 个世界单位范围内给所有实体施加中毒。",
                 "icon": "/assets/items/poison-cloud-grenade.png",
+            },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["throwable", "area"],
             },
             "economy": {
                 "baseValue": 36,
@@ -191,6 +210,10 @@
                 "description": "对位置目标使用，把使用者移动过去。",
                 "icon": "/assets/items/blink-device.png",
             },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["gadget", "mobility"],
+            },
             "economy": {
                 "baseValue": 45,
             },
@@ -218,13 +241,20 @@
                 "description": "对实体目标造成 impact 伤害，可破坏木箱，对固定石障无效。",
                 "icon": "/assets/items/impact-hammer.png",
             },
+            "catalog": {
+                "category": "equipment",
+                "tags": ["weapon", "tool", "melee"],
+            },
+            "equipment": {
+                "slot": "hand",
+                "primary": "activate",
+            },
             "economy": {
                 "baseValue": 10,
             },
             "targeting": {
                 "mode": "entity",
                 "range": 2.0,
-                "default": "crate-1",
             },
             "damage_applier": {
                 "amount": 15,
@@ -246,6 +276,10 @@
                 "name": "怪物蛋",
                 "description": "扔到位置目标，在该位置创建一只小怪物。",
                 "icon": "/assets/items/monster-egg.png",
+            },
+            "catalog": {
+                "category": "consumable",
+                "tags": ["throwable", "summon"],
             },
             "economy": {
                 "baseValue": 28,
@@ -276,6 +310,15 @@
                 "description": "使用弹匣内的 9mm 子弹发射投射物；空弹匣会先从背包装填。",
                 "icon": "/assets/items/basic-pistol.png",
             },
+            "catalog": {
+                "category": "equipment",
+                "tags": ["weapon", "firearm"],
+            },
+            "equipment": {
+                "slot": "hand",
+                "primary": "activate",
+                "secondary": "reload",
+            },
             "economy": {
                 "baseValue": 80,
             },
@@ -283,9 +326,8 @@
                 "value": "green",
             },
             "targeting": {
-                "mode": "entity",
+                "mode": "position",
                 "range": 12,
-                "default": "@dummy",
             },
             "firearm": {
                 "acceptedAmmoTypes": ["9mm"],
@@ -318,6 +360,10 @@
                 "description": "可交易、可丢弃的普通 9mm 弹药。",
                 "icon": "/assets/items/nine-mm-round.png",
             },
+            "catalog": {
+                "category": "ammo",
+                "tags": ["9mm"],
+            },
             "stacking": {
                 "max": 50,
                 "initialQuantity": 24,
@@ -344,6 +390,10 @@
                 "name": "淬毒 9mm 子弹",
                 "description": "命中目标时造成穿刺伤害并施加中毒。",
                 "icon": "/assets/items/toxic-nine-mm-round.png",
+            },
+            "catalog": {
+                "category": "ammo",
+                "tags": ["9mm", "poison"],
             },
             "stacking": {
                 "max": 50,
@@ -378,6 +428,10 @@
                 "name": "爆裂 9mm 子弹",
                 "description": "命中后造成小范围 fire 伤害。",
                 "icon": "/assets/items/explosive-nine-mm-round.png",
+            },
+            "catalog": {
+                "category": "ammo",
+                "tags": ["9mm", "explosive"],
             },
             "stacking": {
                 "max": 20,

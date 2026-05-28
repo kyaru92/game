@@ -6,6 +6,13 @@ export interface Target {
   position?: [number, number];
 }
 
+export interface TargetContext {
+  actorId?: string;
+  selectedTarget?: Target;
+  cursorPosition?: [number, number];
+  requireExplicitEntity?: boolean;
+}
+
 export interface ItemInstance {
   instanceId: string;
   protoId: string;

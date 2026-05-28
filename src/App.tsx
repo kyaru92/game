@@ -12,6 +12,8 @@ import {
   effectColor,
   formatMs,
   getEffectSummaries,
+  isEquipmentItem,
+  itemCategory,
   itemIcon,
   targetForItem,
   type EffectSummary,
@@ -62,11 +64,13 @@ export default function App() {
   const logListRef = useRef<HTMLDivElement | null>(null);
   const movementKeysRef = useRef(new Set<string>());
   const shouldStickLogRef = useRef(true);
-  const selectedTargetRef = useRef<Target>({ kind: "entity", entityId: "dummy" });
+  const selectedTargetRef = useRef<Target>({ kind: "none" });
+  const cursorPositionRef = useRef<[number, number] | undefined>(undefined);
   const [selectedTarget, setSelectedTargetState] = useState<Target>(selectedTargetRef.current);
   const [commandLine, setCommandLine] = useState("");
   const [commandFocused, setCommandFocused] = useState(false);
   const [sideTab, setSideTab] = useState<"status" | "inventory" | "supply">("status");
+  const [backpackOpen, setBackpackOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [, forceRender] = useState(0);
 
@@ -105,16 +109,65 @@ export default function App() {
     }
   }, [applyCommandSuggestion, filteredSuggestions, showSuggestions, suggestionIndex]);
 
-  const useInventoryItem = useCallback((index: number) => {
-    const itemId = runtime.world.inventory("player")[index];
+  const useItem = useCallback((itemId: string) => {
+    const item = runtime.world.items[itemId];
+    if (!item || !runtime.world.inventory("player").includes(itemId)) {
+      runtime.world.log(`物品不在背包中：${itemId}`);
+      refreshUi();
+      return;
+    }
+    const target = targetForItem(runtime.world, item, {
+      actorId: "player",
+      selectedTarget: selectedTargetRef.current,
+      cursorPosition: cursorPositionRef.current,
+      requireExplicitEntity: true,
+    });
+    runtime.activationSystem.startUseItem("player", itemId, target);
+    refreshUi();
+  }, [refreshUi, runtime]);
+
+  const equipItem = useCallback((itemId: string) => {
+    const item = runtime.world.items[itemId];
+    if (!item || !isEquipmentItem(item)) {
+      runtime.world.log(item ? `${displayItemName(item)} 不是装备。` : `找不到装备：${itemId}`);
+      refreshUi();
+      return;
+    }
+    if (runtime.world.equipItem("player", itemId)) runtime.world.log(`切换装备：${displayItemName(item)}。`);
+    refreshUi();
+  }, [refreshUi, runtime]);
+
+  const activateHotbarSlot = useCallback((slotIndex: number) => {
+    const itemId = runtime.world.hotbar("player")[slotIndex];
     if (!itemId) {
-      runtime.world.log(`没有第 ${index + 1} 个物品。`);
+      runtime.world.log(`快捷栏 ${slotIndex + 1} 是空的。`);
       refreshUi();
       return;
     }
     const item = runtime.world.items[itemId];
-    const target = targetForItem(runtime.world, item, selectedTargetRef.current);
-    runtime.activationSystem.startUse("player", index, target);
+    if (!item) {
+      refreshUi();
+      return;
+    }
+    if (isEquipmentItem(item)) equipItem(itemId);
+    else useItem(itemId);
+  }, [equipItem, refreshUi, runtime, useItem]);
+
+  const assignHotbarSlot = useCallback((slotIndex: number, itemId: string) => {
+    if (runtime.world.setHotbarSlot("player", slotIndex, itemId)) {
+      runtime.world.log(`${displayItemName(runtime.world.items[itemId])} 放入快捷栏 ${slotIndex + 1}。`);
+    }
+    refreshUi();
+  }, [refreshUi, runtime]);
+
+  const reloadActiveEquipment = useCallback(() => {
+    const itemId = runtime.world.activeItemId("player");
+    if (!itemId) {
+      runtime.world.log("当前没有装备。提示：按 1-7 切换装备。");
+      refreshUi();
+      return;
+    }
+    runtime.firearmSystem.reloadItem("player", itemId);
     refreshUi();
   }, [refreshUi, runtime]);
 
@@ -186,9 +239,25 @@ export default function App() {
         return;
       }
 
-      if (/^[1-9]$/.test(key)) {
+      if (/^[1-7]$/.test(key)) {
         event.preventDefault();
-        useInventoryItem(Number(key) - 1);
+        activateHotbarSlot(Number(key) - 1);
+        return;
+      }
+
+      if (key === "b") {
+        event.preventDefault();
+        setBackpackOpen((open) => {
+          const next = !open;
+          setSideTab(next ? "inventory" : "status");
+          return next;
+        });
+        return;
+      }
+
+      if (key === "r") {
+        event.preventDefault();
+        reloadActiveEquipment();
         return;
       }
 
@@ -212,14 +281,47 @@ export default function App() {
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", clearMovement);
     };
-  }, [cancelCasting, useInventoryItem]);
+  }, [activateHotbarSlot, cancelCasting, reloadActiveEquipment]);
+
+  const handleCanvasMouseMove = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const point = eventToWorldPoint(canvas, event.clientX, event.clientY, runtime.world);
+    cursorPositionRef.current = point ? [point.x, point.y] : undefined;
+  }, [runtime]);
 
   const handleCanvasClick = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const point = eventToWorldPoint(canvas, event.clientX, event.clientY, runtime.world);
     if (!point) return;
+    cursorPositionRef.current = [point.x, point.y];
     const entity = runtime.world.entityAt(point.x, point.y);
+    const activeItemId = runtime.world.activeItemId("player");
+    const activeItem = activeItemId ? runtime.world.items[activeItemId] : undefined;
+
+    if (activeItem && isEquipmentItem(activeItem)) {
+      if (entity && entity.entityId !== "player") {
+        const selected = selectedTargetRef.current;
+        if (selected.kind !== "entity" || selected.entityId !== entity.entityId) {
+          const target: Target = { kind: "entity", entityId: entity.entityId };
+          setSelectedTarget(target);
+          runtime.world.log(`选择目标：${describeTarget(runtime.world, target)}`);
+          refreshUi();
+          return;
+        }
+      }
+      const target = targetForItem(runtime.world, activeItem, {
+        actorId: "player",
+        selectedTarget: selectedTargetRef.current,
+        cursorPosition: [point.x, point.y],
+        requireExplicitEntity: true,
+      });
+      runtime.activationSystem.startUseItem("player", activeItem.instanceId, target);
+      refreshUi();
+      return;
+    }
+
     const target: Target = entity ? { kind: "entity", entityId: entity.entityId } : { kind: "position", position: [point.x, point.y] };
     setSelectedTarget(target);
     runtime.world.log(`选择目标：${describeTarget(runtime.world, target)}`);
@@ -229,6 +331,9 @@ export default function App() {
   const world = runtime.world;
   const player = world.entities.player;
   const inventory = world.inventory("player").map((itemId) => world.items[itemId]).filter(Boolean);
+  const hotbarSlots = world.hotbar("player");
+  const activeItemId = world.activeItemId("player");
+  const selectedEntity = selectedTarget.kind === "entity" && selectedTarget.entityId ? world.entities[selectedTarget.entityId] : undefined;
   const entities = Object.values(world.entities).sort((a, b) => (a.entityId === "player" ? -1 : b.entityId === "player" ? 1 : a.entityId.localeCompare(b.entityId)));
   const visibleEntities = entities.slice(0, 4);
   const casting = player.components.casting;
@@ -239,23 +344,28 @@ export default function App() {
       <header className="top-bar">
         <div>
           <h1>Canvas ECS MVP</h1>
-          <p>TypeScript + Canvas 自由移动世界：操控、物品栏、Effect 表现与指令生成。</p>
+          <p>TypeScript + Canvas 自由移动世界：装备、快捷栏、Effect 表现与指令生成。</p>
         </div>
         <div className="control-hints">
-          <kbd>WASD</kbd>/<kbd>方向键</kbd> 按住移动 · <kbd>点击场景</kbd> 选择目标 · <kbd>1-9</kbd> 使用物品 · <kbd>C</kbd> 取消施法
+          <kbd>WASD</kbd>/<kbd>方向键</kbd> 移动 · <kbd>1-7</kbd> 快捷栏 · <kbd>B</kbd> 背包 · <kbd>左键</kbd> 使用装备 · <kbd>R</kbd> 装填 · <kbd>C</kbd> 取消
         </div>
       </header>
 
       <section className="game-layout">
         <div className="canvas-panel">
-          <canvas ref={canvasRef} className="game-canvas" onClick={handleCanvasClick} />
+          <div className="playfield">
+            <canvas ref={canvasRef} className="game-canvas" onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} />
+            <PlayerHud player={player} runtime={runtime} />
+            <TargetHud entity={selectedEntity} runtime={runtime} />
+            <Hotbar slots={hotbarSlots} world={world} activeItemId={activeItemId} onSlot={activateHotbarSlot} />
+          </div>
           <div className="canvas-caption">
             <span>当前目标：<strong>{describeTarget(world, selectedTarget)}</strong></span>
-            <span>世界坐标为连续数值；Effect 会以角色光环、头顶色块、倒计时条和浮动数字显示。</span>
+            <span>点击非玩家实体先选中；当前位置目标会使用鼠标位置。</span>
           </div>
         </div>
 
-        <aside className="side-panel">
+        <aside className={backpackOpen ? "side-panel backpack-open" : "side-panel"}>
           <section className="panel-card target-panel">
             <div className="row between">
               <h2>目标与施法</h2>
@@ -271,9 +381,9 @@ export default function App() {
           </section>
 
           <nav className="side-tabs">
-            <button className={sideTab === "status" ? "active" : ""} onClick={() => setSideTab("status")}>实体</button>
-            <button className={sideTab === "inventory" ? "active" : ""} onClick={() => setSideTab("inventory")}>物品</button>
-            <button className={sideTab === "supply" ? "active" : ""} onClick={() => setSideTab("supply")}>补给</button>
+            <button className={sideTab === "status" ? "active" : ""} onClick={() => { setSideTab("status"); setBackpackOpen(false); }}>实体</button>
+            <button className={sideTab === "inventory" ? "active" : ""} onClick={() => { setSideTab("inventory"); setBackpackOpen(true); }}>背包</button>
+            <button className={sideTab === "supply" ? "active" : ""} onClick={() => { setSideTab("supply"); setBackpackOpen(false); }}>补给</button>
           </nav>
 
           <section className="panel-card side-tab-panel">
@@ -293,8 +403,8 @@ export default function App() {
             {sideTab === "inventory" && (
               <div className="inventory-card">
                 <div className="row between title-row">
-                  <h2>物品栏</h2>
-                  <span className="muted">数字键对应槽位</span>
+                  <h2>背包</h2>
+                  <span className="muted">{backpackOpen ? "按 B 关闭" : "按 B 打开"} · 设置 1-7 快捷栏</span>
                 </div>
                 <div className="inventory-list">
                   {inventory.length ? inventory.map((item, index) => (
@@ -303,11 +413,12 @@ export default function App() {
                       index={index}
                       item={item}
                       world={world}
-                      onUse={() => useInventoryItem(index)}
+                      onPrimary={() => isEquipmentItem(item) ? equipItem(item.instanceId) : useItem(item.instanceId)}
+                      onAssignHotbar={(slotIndex) => assignHotbarSlot(slotIndex, item.instanceId)}
                     />
                   )) : <p className="muted">背包为空，下面可以补给。</p>}
                 </div>
-                {inventory.length > 4 && <p className="muted compact">滚动物品栏查看更多；数字键仍对应真实槽位。</p>}
+                {inventory.length > 4 && <p className="muted compact">滚动物品栏查看更多；数字键只对应快捷栏。</p>}
               </div>
             )}
 
@@ -402,6 +513,77 @@ function LogEntry({ message }: { message: string }) {
   );
 }
 
+function PlayerHud({ player, runtime }: { player: Entity; runtime: GameRuntime }) {
+  return <HudCard title="玩家" entity={player} runtime={runtime} emptyText="玩家状态不可用" />;
+}
+
+function TargetHud({ entity, runtime }: { entity?: Entity; runtime: GameRuntime }) {
+  return <HudCard title="选中目标" entity={entity} runtime={runtime} emptyText="未选中实体" align="right" />;
+}
+
+function HudCard({ title, entity, runtime, emptyText, align = "left" }: { title: string; entity?: Entity; runtime: GameRuntime; emptyText: string; align?: "left" | "right" }) {
+  if (!entity) {
+    return (
+      <section className={`hud-card ${align === "right" ? "target-hud" : "player-hud"}`}>
+        <div className="hud-title"><span>{title}</span><strong>{emptyText}</strong></div>
+      </section>
+    );
+  }
+
+  const resources = entity.components.resources ?? {};
+  const hp = Number(resources.hp ?? 0);
+  const maxHp = Number(resources.max_hp ?? (hp || 1));
+  const hasHp = typeof resources.hp === "number";
+  const effects = getEffectSummaries(runtime.world, entity).slice(0, 5);
+  return (
+    <section className={`hud-card ${align === "right" ? "target-hud" : "player-hud"}`}>
+      <div className="hud-title"><span>{title}</span><strong>{entity.name}</strong></div>
+      {hasHp ? <HudHpBar hp={hp} maxHp={maxHp} /> : <p className="muted compact">无生命资源</p>}
+      <div className="hud-effects">
+        {effects.length ? effects.map((effect) => (
+          <span key={effect.id} className="hud-effect" style={{ borderColor: effect.color, color: effect.color }}>{effect.name.slice(0, 2)}{effect.stacks > 1 ? `×${effect.stacks}` : ""}</span>
+        )) : <span className="muted">无 buff</span>}
+      </div>
+    </section>
+  );
+}
+
+function HudHpBar({ hp, maxHp }: { hp: number; maxHp: number }) {
+  const pct = Math.max(0, Math.min(100, (hp / Math.max(1, maxHp)) * 100));
+  return <div className="hud-hp"><i style={{ width: `${pct}%` }} /><span>{hp}/{maxHp}</span></div>;
+}
+
+function Hotbar({ slots, world, activeItemId, onSlot }: { slots: Array<string | null>; world: World; activeItemId?: string; onSlot: (slotIndex: number) => void }) {
+  return (
+    <div className="hotbar" aria-label="快捷栏">
+      {slots.map((itemId, index) => {
+        const item = itemId ? world.items[itemId] : undefined;
+        const cooldown = item ? cooldownRemainingMs(item, world) : 0;
+        const classes = ["hotbar-slot", item?.instanceId === activeItemId ? "active" : "", cooldown > 0 ? "cooling" : ""].filter(Boolean).join(" ");
+        return (
+          <button key={index} type="button" className={classes} disabled={!item} onClick={() => onSlot(index)} title={item ? displayItemName(item) : `空快捷栏 ${index + 1}`}>
+            <span className="hotbar-key">{index + 1}</span>
+            <span className="hotbar-icon">{item ? itemIcon(item.protoId) : ""}</span>
+            {item && <span className="hotbar-count">{hotbarItemStatus(item)}</span>}
+            {cooldown > 0 && <span className="hotbar-cooldown">{formatMs(cooldown)}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function hotbarItemStatus(item: ItemInstance): string {
+  const firearm = item.components.firearm;
+  if (firearm) return `${(firearm.loadedRounds ?? []).length}/${Math.max(1, Number(firearm.magazineSize ?? firearm.capacity ?? 1))}`;
+  const stacking = item.components.stacking;
+  if (stacking && Number(stacking.max ?? 1) > 1) return `×${stacking.quantity}`;
+  const activation = item.components.activation;
+  if (activation && activation.consumeCharge !== false) return String(activation.charges ?? activation.maxCharges ?? 1);
+  if (isEquipmentItem(item)) return "装备";
+  return itemCategory(item);
+}
+
 function EntityStatus({ entity, runtime }: { entity: Entity; runtime: GameRuntime }) {
   const resources = entity.components.resources ?? {};
   const baseAttrs = entity.components.attributes ?? {};
@@ -457,19 +639,21 @@ function EffectList({ effects }: { effects: EffectSummary[] }) {
   );
 }
 
-function InventoryRow({ index, item, world, onUse }: { index: number; item: ItemInstance; world: World; onUse: () => void }) {
+function InventoryRow({ index, item, world, onPrimary, onAssignHotbar }: { index: number; item: ItemInstance; world: World; onPrimary: () => void; onAssignHotbar: (slotIndex: number) => void }) {
   const activation = item.components.activation;
   const cooldown = cooldownRemainingMs(item, world);
+  const isEquipment = isEquipmentItem(item);
   const charges = activation ? (activation.consumeCharge === false ? "∞" : `${activation.charges}/${activation.maxCharges}`) : "-";
   const stackText = item.components.stacking?.max > 1 ? `数量 ${item.components.stacking.quantity}/${item.components.stacking.max}` : undefined;
-  const disabled = !activation || cooldown > 0 || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0);
-  const targetMode = item.components.targeting?.mode ?? "self";
+  const disabled = !isEquipment && (!activation || cooldown > 0 || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0));
+  const targetMode = item.components.targeting?.mode ?? (isEquipment ? "装备" : "self");
+  const canHotbar = isEquipment || Boolean(activation);
   return (
     <article className="inventory-row">
       <div className="slot-index">{index + 1}</div>
       <div className="item-icon">{itemIcon(item.protoId)}</div>
       <div className="item-main">
-        <div className="row between"><strong>{displayItemName(item)}</strong><span className="muted">{targetMode}</span></div>
+        <div className="row between"><strong>{displayItemName(item)}</strong><span className="muted">{itemCategory(item)} · {targetMode}</span></div>
         <p>{interpolateItemText(item.components.display?.description ?? item.protoId, item)}</p>
         <div className="item-meta">
           {stackText && <span>{stackText}</span>}
@@ -478,7 +662,14 @@ function InventoryRow({ index, item, world, onUse }: { index: number; item: Item
           <span>施法 {formatMs(Number(activation?.castDurationMs ?? 0))}</span>
         </div>
       </div>
-      <button disabled={disabled} onClick={onUse}>使用</button>
+      <div className="inventory-actions">
+        <button disabled={disabled} onClick={onPrimary}>{isEquipment ? "装备" : "使用"}</button>
+        {canHotbar && (
+          <div className="hotbar-picker" aria-label="设置快捷栏">
+            {[0, 1, 2, 3, 4, 5, 6].map((slotIndex) => <button key={slotIndex} type="button" onClick={() => onAssignHotbar(slotIndex)}>{slotIndex + 1}</button>)}
+          </div>
+        )}
+      </div>
     </article>
   );
 }

@@ -97,7 +97,64 @@ kbd {
   overflow: hidden;
 }
 
+.playfield {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .game-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+.hud-card {
+  position: absolute;
+  top: 14px;
+  z-index: 2;
+  width: min(280px, 34%);
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.72);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+.player-hud { left: 14px; }
+.target-hud { right: 14px; }
+.hud-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.hud-title span { color: #93c5fd; font-weight: 800; letter-spacing: 0.04em; }
+.hud-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #f8fafc; }
+.hud-hp { position: relative; height: 16px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: rgba(127, 29, 29, 0.5); }
+.hud-hp i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #16a34a, #86efac); }
+.hud-hp span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #f8fafc; text-shadow: 0 1px 2px #020617; }
+.hud-effects { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; min-height: 20px; }
+.hud-effect { padding: 2px 6px; border: 1px solid; border-radius: 999px; background: rgba(15, 23, 42, 0.76); font-size: 10px; font-weight: 800; }
+
+.hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(7, 56px);
+  gap: 8px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.hotbar-slot {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 13px;
+  background: rgba(15, 23, 42, 0.84);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16), 0 10px 24px rgba(0, 0, 0, 0.26);
+}
+.hotbar-slot.active { border-color: #facc15; box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35), 0 10px 24px rgba(0, 0, 0, 0.32); }
+.hotbar-slot.cooling { filter: saturate(0.72); }
+.hotbar-key { position: absolute; left: 5px; top: 4px; color: #bfdbfe; font-size: 10px; font-weight: 900; }
+.hotbar-icon { display: grid; place-items: center; height: 100%; font-size: 26px; }
+.hotbar-count { position: absolute; right: 5px; bottom: 4px; color: #f8fafc; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px #020617; }
+.hotbar-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(2, 6, 23, 0.66); color: #f8fafc; font-size: 11px; font-weight: 900; }
 
 .canvas-caption {
   display: flex;
@@ -235,9 +292,9 @@ kbd {
   scrollbar-color: rgba(96, 165, 250, 0.55) rgba(15, 23, 42, 0.4);
 }
 .inventory-row {
-  min-height: 78px;
+  min-height: 88px;
   display: grid;
-  grid-template-columns: 22px 28px minmax(0, 1fr) auto;
+  grid-template-columns: 22px 28px minmax(0, 1fr) 84px;
   align-items: center;
   gap: 7px;
   padding: 7px;
@@ -260,7 +317,10 @@ kbd {
 }
 .item-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .item-meta span { padding: 1px 5px; border-radius: 999px; background: rgba(51, 65, 85, 0.62); color: #cbd5e1; font-size: 10px; }
-.inventory-row button { padding: 6px 8px; font-size: 12px; }
+.inventory-actions { display: grid; gap: 5px; }
+.inventory-actions > button { padding: 6px 8px; font-size: 12px; }
+.hotbar-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.hotbar-picker button { min-width: 0; padding: 2px 0; border-radius: 6px; font-size: 10px; }
 
 .supply-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .supply-grid button { padding: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }

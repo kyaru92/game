@@ -273,6 +273,27 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
     },
   };
 
+  const catalogSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    description: "物品目录信息：用于背包分类、快捷栏筛选和 UI 排序，不直接决定行为。",
+    properties: {
+      category: { type: "string", enum: ["consumable", "equipment", "ammo", "material", "quest", "misc"], description: "UI/整理分类；行为仍由 activation/equipment/firearm 等组件决定。" },
+      tags: { type: "array", items: { type: "string" }, description: "额外标签，例如 medical、weapon、throwable、firearm。" },
+    },
+  };
+
+  const equipmentSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    description: "装备交互语义：进入装备态后，由鼠标/快捷操作触发主要动作。",
+    properties: {
+      slot: { type: "string", enum: ["hand", "two_hands", "tool", "weapon", "utility"], default: "hand", description: "装备占用的逻辑槽位。" },
+      primary: { type: "string", enum: ["activate"], default: "activate", description: "鼠标左键/主要动作执行的行为；当前为激活本物品。" },
+      secondary: { type: "string", enum: ["reload", "none"], default: "none", description: "次要动作；枪械通常使用 reload。" },
+    },
+  };
+
   const componentsSchema: JSONSchema7 = {
     type: "object",
     additionalProperties: true,
@@ -323,6 +344,8 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
           searchDurationMs: { type: "integer", minimum: 0, description: "完成搜索所需时间，单位毫秒；0 表示立即完成。" },
         },
       },
+      catalog: catalogSchema,
+      equipment: equipmentSchema,
       targeting: { ...targetingSchema, description: "物品激活时的目标选择规则。" },
       effect_applier: {
         description: "激活或触发时施加的效果；可填写单个 effect_applier，或数组表示依次尝试施加多个效果。",

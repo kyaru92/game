@@ -62,6 +62,19 @@ export function displayItemName(item: ItemInstance): string {
   return item.components.display?.name ?? item.protoId;
 }
 
+export function itemCategory(item: ItemInstance): string {
+  const explicit = item.components.catalog?.category;
+  if (typeof explicit === "string" && explicit.trim()) return explicit;
+  if (item.components.equipment || item.components.firearm) return "equipment";
+  if (item.components.ammo) return "ammo";
+  if (item.components.activation) return "consumable";
+  return "misc";
+}
+
+export function isEquipmentItem(item: ItemInstance): boolean {
+  return Boolean(item.components.equipment || item.components.firearm);
+}
+
 export function initEntityRuntimeState(entity: { components: JsonObj }): void {
   entity.components.active_effects ??= {};
   const resources = entity.components.resources;

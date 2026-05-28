@@ -1,4 +1,4 @@
-import type { Entity, EventData, ItemInstance, JsonObj, Target } from "./types";
+import type { Entity, EventData, ItemInstance, JsonObj, Target, TargetContext } from "./types";
 import type { World } from "./world";
 import {
   deepClone,
@@ -15,6 +15,15 @@ export class ActivationSystem {
   constructor(private readonly world: World) {}
 
   startUse(actorId: string, inventoryIndex: number, target: Target): void {
+    const itemId = this.world.inventory(actorId)[inventoryIndex];
+    if (!itemId) {
+      this.world.log(`背包索引不存在：${inventoryIndex}`);
+      return;
+    }
+    this.startUseItem(actorId, itemId, target);
+  }
+
+  startUseItem(actorId: string, itemId: string, target: Target): void {
     const actor = this.world.entities[actorId];
     if (!actor) {
       this.world.log(`找不到使用者：${actorId}`);
@@ -27,13 +36,13 @@ export class ActivationSystem {
       return;
     }
 
-    const inventory = this.world.inventory(actorId);
-    if (inventoryIndex < 0 || inventoryIndex >= inventory.length) {
-      this.world.log(`背包索引不存在：${inventoryIndex}`);
+    const inventoryIndex = this.world.inventory(actorId).indexOf(itemId);
+    const item = this.world.items[itemId];
+    if (!item || inventoryIndex < 0) {
+      this.world.log(`物品不在背包中：${itemId}`);
       return;
     }
 
-    const item = this.world.items[inventory[inventoryIndex]];
     const activation = item.components.activation;
     if (!activation) {
       this.world.log(`${displayItemName(item)} 没有 activation 组件，无法使用。`);
@@ -59,12 +68,11 @@ export class ActivationSystem {
 
     const castMs = Number(activation.castDurationMs ?? 0);
     if (castMs <= 0) {
-      this.completeActivation(actorId, inventoryIndex, target);
+      this.completeActivation(actorId, item.instanceId, target);
       return;
     }
 
     actor.components.casting = {
-      inventoryIndex,
       itemId: item.instanceId,
       itemName: displayItemName(item),
       startedAtMs: now,
@@ -80,18 +88,19 @@ export class ActivationSystem {
       const casting = actor.components.casting;
       if (!casting || casting.finishAtMs > now) continue;
       delete actor.components.casting;
-      this.completeActivation(actorId, Number(casting.inventoryIndex), casting.target);
+      this.completeActivation(actorId, String(casting.itemId ?? ""), casting.target);
     }
   }
 
-  completeActivation(actorId: string, inventoryIndex: number, target: Target): void {
+  completeActivation(actorId: string, itemId: string, target: Target): void {
     const inventory = this.world.inventory(actorId);
-    if (inventoryIndex < 0 || inventoryIndex >= inventory.length) {
+    const inventoryIndex = inventory.indexOf(itemId);
+    const item = this.world.items[itemId];
+    if (!item || inventoryIndex < 0) {
       this.world.log("激活失败：物品已经不在背包中。");
       return;
     }
 
-    const item = this.world.items[inventory[inventoryIndex]];
     const activation = item.components.activation;
     if (!activation || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0)) {
       this.world.log(`激活失败：${displayItemName(item)} 已不可用。`);
@@ -121,11 +130,12 @@ export class ActivationSystem {
     if (activation.consumeCharge !== false) {
       activation.charges = Number(activation.charges ?? 1) - 1;
       if (activation.consumeWhenDepleted && activation.charges <= 0) {
-        const [removed] = inventory.splice(inventoryIndex, 1);
-        this.world.log(`${displayItemName(this.world.items[removed])} 已耗尽并被移除。`);
+        const itemName = displayItemName(item);
+        this.world.removeInventoryItem(actorId, item.instanceId);
+        this.world.log(`${itemName} 已耗尽并被移除。`);
       }
     }
-    activation._cooldownUntilMs = this.world.nowMs() + Number(activation.cooldownMs ?? 0);
+    if (this.world.items[item.instanceId]) activation._cooldownUntilMs = this.world.nowMs() + Number(activation.cooldownMs ?? 0);
   }
 
   cancel(actorId: string): void {
@@ -243,10 +253,18 @@ export class FirearmSystem {
   }
 
   reload(actorId: string, inventoryIndex: number): void {
-    const inventory = this.world.inventory(actorId);
-    const item = this.world.items[inventory[inventoryIndex]];
-    if (!item) {
+    const itemId = this.world.inventory(actorId)[inventoryIndex];
+    if (!itemId) {
       this.world.log(`背包索引不存在：${inventoryIndex}`);
+      return;
+    }
+    this.reloadItem(actorId, itemId);
+  }
+
+  reloadItem(actorId: string, itemId: string): void {
+    const item = this.world.items[itemId];
+    if (!item || !this.world.inventory(actorId).includes(itemId)) {
+      this.world.log(`物品不在背包中：${itemId}`);
       return;
     }
     if (!item.components.firearm) {
@@ -741,28 +759,37 @@ export class AttributeSystem {
   }
 }
 
-export function targetForItem(world: World, item: ItemInstance, selectedTarget: Target): Target {
+export function targetForItem(world: World, item: ItemInstance, contextOrTarget: Target | TargetContext): Target {
+  const context: TargetContext = isTarget(contextOrTarget) ? { selectedTarget: contextOrTarget } : contextOrTarget;
   const targeting = item.components.targeting;
+  const actorId = context.actorId ?? "player";
+  const selectedTarget = context.selectedTarget ?? { kind: "none" };
   const mode = String(targeting?.mode ?? "self");
-  if (mode === "self") return { kind: "entity", entityId: "player" };
+  if (mode === "self") return { kind: "entity", entityId: actorId };
   if (mode === "entity") {
     if (selectedTarget.kind === "entity" && selectedTarget.entityId && world.entities[selectedTarget.entityId]) return selectedTarget;
+    if (context.requireExplicitEntity) return { kind: "none" };
     const defaultSelector = targeting?.default;
     const defaultEntity = typeof defaultSelector === "string" ? world.findEntity(defaultSelector) : undefined;
-    return { kind: "entity", entityId: defaultEntity ?? Object.keys(world.entities).find((id) => id !== "player") };
+    const fallback = defaultEntity ?? Object.keys(world.entities).find((id) => id !== actorId);
+    return fallback ? { kind: "entity", entityId: fallback } : { kind: "none" };
   }
   if (mode === "position") {
+    if (context.cursorPosition) return { kind: "position", position: context.cursorPosition };
     if (selectedTarget.kind === "position" && selectedTarget.position) return selectedTarget;
     if (selectedTarget.kind === "entity" && selectedTarget.entityId) {
       const position = world.entities[selectedTarget.entityId]?.components.position;
       if (position) return { kind: "position", position: [position.x, position.y] };
     }
-    const playerPosition = world.player().components.position ?? { x: 0, y: 0 };
+    const playerPosition = world.entities[actorId]?.components.position ?? { x: 0, y: 0 };
     return { kind: "position", position: [playerPosition.x, playerPosition.y] };
   }
   return { kind: "none" };
 }
 
+function isTarget(value: Target | TargetContext): value is Target {
+  return "kind" in value;
+}
 
 function validateTarget(world: World, item: ItemInstance, target: Target, actorId: string): string | undefined {
   const targeting = item.components.targeting;

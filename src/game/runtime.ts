@@ -26,10 +26,16 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
   const attributeSystem = new AttributeSystem(world);
   world.systems.push(activationSystem, firearmSystem, projectileSystem, effectSystem);
 
+  const grantedItems: Record<string, string> = {};
   for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg", "impact-hammer", "basic-pistol", "toxic-nine-mm-round", "explosive-nine-mm-round", "nine-mm-round"]) {
-    if (world.itemPrototypes[protoId]) world.give("player", protoId);
+    if (world.itemPrototypes[protoId]) grantedItems[protoId] = world.give("player", protoId).instanceId;
   }
-  world.log("Canvas ECS MVP 已启动：按住 WASD/方向键自由移动，点击场景选择目标，数字键 1-9 使用物品；damage crate-1 15 impact 可破坏木箱。");
+  ["basic-pistol", "impact-hammer", "adrenaline-injector", "regen-serum", "poison-cloud-grenade", "blink-device", "monster-egg"].forEach((protoId, index) => {
+    const itemId = grantedItems[protoId];
+    if (itemId) world.setHotbarSlot("player", index, itemId);
+  });
+  if (grantedItems["basic-pistol"]) world.equipItem("player", grantedItems["basic-pistol"]);
+  world.log("Canvas ECS MVP 已启动：WASD/方向键移动，1-7 快捷栏，B 打开背包，鼠标左键使用当前装备，R 装填枪械。");
 
   return { world, activationSystem, firearmSystem, effectSystem, attributeSystem };
 }
