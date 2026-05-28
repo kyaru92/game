@@ -30,9 +30,9 @@ interface GameData {
 }
 
 const DATA_FILES = {
-  effects: "effect.jsonc",
-  items: "item.jsonc",
-  entities: "entity.jsonc",
+  effects: path.join("data", "effect.jsonc"),
+  items: path.join("data", "item.jsonc"),
+  entities: path.join("data", "entity.jsonc"),
 } as const;
 
 const runtimeEntityComponents = new Set(["active_effects", "casting", "_deathLogged", "hotbar", "loadout", "projectile"]);

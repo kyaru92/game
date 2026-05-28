@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
-import effectText from "../effect.jsonc?raw";
-import entityText from "../entity.jsonc?raw";
-import itemText from "../item.jsonc?raw";
+import effectText from "../data/effect.jsonc?raw";
+import entityText from "../data/entity.jsonc?raw";
+import itemText from "../data/item.jsonc?raw";
 import {
   cooldownRemainingMs,
   createGameRuntime,
