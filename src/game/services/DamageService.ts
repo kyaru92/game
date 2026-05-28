@@ -1,4 +1,5 @@
-import type { EntityRuntimeComponents } from "../../domain/componentTypes";
+import { parseDamageType, parseDamageTypeFilter } from "../../domain/literals";
+import type { DamageType, DamageTypeFilter, EntityRuntimeComponents } from "../../domain/componentTypes";
 import type { World } from "../world";
 
 type DamageableComponent = NonNullable<EntityRuntimeComponents["damageable"]>;
@@ -6,7 +7,7 @@ type DamageableComponent = NonNullable<EntityRuntimeComponents["damageable"]>;
 export class DamageService {
   constructor(private readonly world: World) {}
 
-  applyDamage(entityId: string, amount: number, damageType = "generic", sourceName = "伤害"): boolean {
+  applyDamage(entityId: string, amount: number, damageType: DamageType = "generic", sourceName = "伤害"): boolean {
     const entity = this.world.entities[entityId];
     if (!entity || !Number.isFinite(amount) || amount <= 0) return false;
 
@@ -16,7 +17,7 @@ export class DamageService {
       return false;
     }
 
-    const normalizedType = damageType.trim().toLowerCase() || "generic";
+    const normalizedType = parseDamageType(damageType) ?? "generic";
     if (!isDamageTypeAllowed(damageable, normalizedType)) {
       this.world.log(`${entity.name} 不会受到 ${normalizedType} 类型伤害。`);
       return false;
@@ -41,15 +42,15 @@ export class DamageService {
   }
 }
 
-function isDamageTypeAllowed(damageable: DamageableComponent, damageType: string): boolean {
+function isDamageTypeAllowed(damageable: DamageableComponent, damageType: DamageType): boolean {
   const allowed = stringList(damageable.allowedDamageTypes);
   const immune = stringList(damageable.immuneDamageTypes);
   if (immune.includes("*") || immune.includes(damageType)) return false;
   return allowed.length === 0 || allowed.includes("*") || allowed.includes(damageType);
 }
 
-function stringList(value: string[] | undefined): string[] {
-  return value ? value.map((item) => item.trim().toLowerCase()).filter(Boolean) : [];
+function stringList(value: DamageTypeFilter[] | undefined): DamageTypeFilter[] {
+  return value ? value.map((item) => parseDamageTypeFilter(item)).filter((item): item is DamageTypeFilter => Boolean(item)) : [];
 }
 
 function formatNumber(value: number): string {

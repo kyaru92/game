@@ -1,3 +1,4 @@
+import { parseDamageType } from "../../domain/literals";
 import type { ActiveEffectLayer, ActiveEffectRuntime, EffectDefinition, PeriodicEffect } from "../../domain/componentTypes";
 import type { Entity } from "../types";
 import type { World } from "../world";
@@ -45,7 +46,7 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Ef
 
   const resources = (entity.components.resources ??= {});
   if (attr === "hp" && amount < 0) {
-    const damageType = periodic.damageType ?? definition.id;
+    const damageType = periodic.damageType ?? parseDamageType(definition.id) ?? "generic";
     world.services.damage.applyDamage(entity.entityId, -amount, damageType, effectName);
     return;
   }

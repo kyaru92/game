@@ -1,6 +1,7 @@
 import { parse, type ParseError } from "jsonc-parser";
 import { applyItemPatches, getCommandSuggestions, parseGiveCommandLine } from "./commandLanguage";
 import type { CommandSuggestion } from "./commandLanguage";
+import { parseDamageType } from "../domain/literals";
 import type { DeepPartial, EntityRuntimeComponents, ItemRuntimeComponents } from "../domain/componentTypes";
 import type { GameRuntime } from "./types";
 import { deepClone, formatCoord } from "./utils";
@@ -204,7 +205,8 @@ function changeHp(runtime: GameRuntime, tokens: string[], sign: 1 | -1): void {
   const amount = Number(tokens[2]);
   if (!entityId || !Number.isFinite(amount)) throw new Error("用法：damage <entity> <amount> [damageType] / heal <entity> <amount>");
   if (sign < 0) {
-    world.services.damage.applyDamage(entityId, amount, tokens[3] ?? "generic", "指令伤害");
+    const damageType = parseDamageType(tokens[3]) ?? "generic";
+    world.services.damage.applyDamage(entityId, amount, damageType, "指令伤害");
     return;
   }
   const entity = world.entities[entityId];

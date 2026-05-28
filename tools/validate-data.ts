@@ -1,4 +1,5 @@
 import Ajv, { type ErrorObject } from "ajv";
+import type { JSONSchema } from "json-schema-to-ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, type ParseError, printParseErrorCode } from "jsonc-parser";
@@ -50,7 +51,15 @@ async function main(): Promise<void> {
   if (!effects || !entities || !items) return finish(diagnostics);
 
   validateSchema(DATA_FILES.effects, effects.value, createEffectDefinitionsSchema(), diagnostics);
-  validateSchema(DATA_FILES.entities, entities.value, createEntityDefinitionsSchema(), diagnostics);
+  validateSchema(
+    DATA_FILES.entities,
+    entities.value,
+    createEntityDefinitionsSchema({
+      itemIds: Object.keys(items.value),
+      entityIds: Object.keys(entities.value),
+    }),
+    diagnostics,
+  );
   validateSchema(
     DATA_FILES.items,
     items.value,
@@ -92,7 +101,7 @@ async function parseJsoncFile<T>(filePath: string, diagnostics: Diagnostic[]): P
   };
 }
 
-function validateSchema(file: string, value: unknown, schema: object, diagnostics: Diagnostic[]): void {
+function validateSchema(file: string, value: unknown, schema: JSONSchema, diagnostics: Diagnostic[]): void {
   const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
   const validate = ajv.compile(schema);
   if (validate(value)) return;

@@ -1,5 +1,5 @@
-import type { AttributeId } from "./componentSchemas";
-export type { AttributeId } from "./componentSchemas";
+import type { AmmoType, AttributeId, DamageType, DamageTypeFilter, TargetSelector } from "./literals";
+export type { AmmoType, AttributeId, DamageType, DamageTypeFilter, TargetSelector } from "./literals";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -20,19 +20,6 @@ export type Target =
 
 export type AttributeMap = Partial<Record<AttributeId, number>> & Record<string, number | undefined>;
 
-export type TargetSelector =
-  | "self"
-  | "actor"
-  | "user"
-  | "activation_target"
-  | "impact_target"
-  | "impact_area"
-  | "activation_area"
-  | "@player"
-  | "@me"
-  | "@who"
-  | "@dummy";
-
 export interface EffectModifier {
   attribute: AttributeId;
   op: "add" | "mul" | "override";
@@ -46,7 +33,7 @@ export interface PeriodicEffect {
   op: "add" | "mul";
   value: number;
   stackType?: "add" | "mul" | "none";
-  damageType?: string;
+  damageType?: DamageType;
 }
 
 export interface EffectStacking {
@@ -83,7 +70,7 @@ export interface EffectApplier {
 
 export interface DamageApplier {
   amount: number;
-  damageType: string;
+  damageType: DamageType;
   target?: TargetSelector;
   radius?: number;
 }
@@ -139,9 +126,9 @@ export interface ProjectileRuntimeComponent extends UnknownObject {
 }
 
 export interface AmmoComponent {
-  ammoType: string;
+  ammoType: AmmoType;
   damage?: number;
-  damageType?: string;
+  damageType?: DamageType;
   impactRadius?: number;
   projectile?: ProjectileConfig;
   damage_applier?: ComponentList<DamageApplier>;
@@ -151,9 +138,9 @@ export interface AmmoComponent {
 export interface AmmoRound {
   ammoProtoId: string;
   displayName: string;
-  ammoType: string;
+  ammoType: AmmoType;
   damage?: number;
-  damageType?: string;
+  damageType?: DamageType;
   impactRadius?: number;
   damage_applier?: ComponentList<DamageApplier>;
   effect_applier?: ComponentList<EffectApplier>;
@@ -161,14 +148,14 @@ export interface AmmoRound {
 }
 
 export interface FirearmComponent extends UnknownObject {
-  acceptedAmmoTypes: string[];
+  acceptedAmmoTypes: AmmoType[];
   magazineSize: number;
   reloadDurationMs: number;
   partialReload?: boolean;
   allowMixedMagazine?: boolean;
   damageBonus?: number;
   damageMultiplier?: number;
-  damageType?: string;
+  damageType?: DamageType;
   projectileSpeed?: number;
   maxDistance?: number;
   pierce?: number;
@@ -347,8 +334,8 @@ export interface CollisionComponent {
 
 export interface DamageableComponent {
   destructible?: boolean;
-  allowedDamageTypes?: string[];
-  immuneDamageTypes?: string[];
+  allowedDamageTypes?: DamageTypeFilter[];
+  immuneDamageTypes?: DamageTypeFilter[];
 }
 
 export interface InteractableComponent {

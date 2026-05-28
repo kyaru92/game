@@ -1,18 +1,9 @@
 import type { JSONSchema } from "json-schema-to-ts";
+import { AMMO_TYPES, ATTRIBUTE_IDS, DAMAGE_TYPE_FILTER_VALUES, DAMAGE_TYPES, targetSelectorValues } from "./literals";
+export { AMMO_TYPES, ATTRIBUTE_IDS, DAMAGE_TYPE_FILTER_VALUES, DAMAGE_TYPES, targetSelectorValues } from "./literals";
+export type { AttributeId, AmmoType, DamageType, DamageTypeFilter, TargetSelector } from "./literals";
 
 type SchemaObject = Exclude<JSONSchema, boolean>;
-
-export const ATTRIBUTE_IDS = [
-  "hp",
-  "max_hp",
-  "move_speed",
-  "attack_speed",
-  "armor",
-  "mana",
-  "max_mana",
-] as const;
-
-export type AttributeId = (typeof ATTRIBUTE_IDS)[number];
 
 const prototypeIdPattern = "^[a-z0-9][a-z0-9_-]*$";
 const numberSchema = { type: "number" } as const satisfies JSONSchema;
@@ -22,20 +13,9 @@ const positiveIntegerSchema = { type: "integer", minimum: 1 } as const satisfies
 const intMsSchema = { type: "integer", minimum: -1 } as const satisfies JSONSchema;
 const looseObjectSchema = { type: "object", additionalProperties: true } as const satisfies JSONSchema;
 const numericMapSchema = { type: "object", additionalProperties: { type: "number" } } as const satisfies JSONSchema;
-
-export const targetSelectorValues = [
-  "self",
-  "actor",
-  "user",
-  "activation_target",
-  "impact_target",
-  "impact_area",
-  "activation_area",
-  "@player",
-  "@me",
-  "@who",
-  "@dummy",
-] as const;
+const damageTypeSchema = { type: "string", enum: DAMAGE_TYPES } as const satisfies JSONSchema;
+const damageTypeFilterSchema = { type: "string", enum: DAMAGE_TYPE_FILTER_VALUES } as const satisfies JSONSchema;
+const ammoTypeSchema = { type: "string", enum: AMMO_TYPES } as const satisfies JSONSchema;
 
 export const effectModifierSchema = {
   type: "object",
@@ -75,7 +55,7 @@ export const periodicEffectSchema = {
     op: { type: "string", enum: ["add", "mul"], description: "周期效果的运算方式。" },
     value: { ...numberSchema, description: "每次周期触发时应用的数值。" },
     stackType: { type: "string", enum: ["add", "mul", "none"], default: "add", description: "多个周期效果叠加时 value 的合并方式。" },
-    damageType: { type: "string", description: "当 periodicEffect 扣减 hp 时使用的伤害类型。" },
+    damageType: { ...damageTypeSchema, description: "当 periodicEffect 扣减 hp 时使用的伤害类型。" },
   },
 } as const satisfies JSONSchema;
 
@@ -180,7 +160,7 @@ export const damageApplierSchema = {
   required: ["amount", "damageType"],
   properties: {
     amount: { type: "number", minimum: 0, description: "造成的伤害数值。" },
-    damageType: { type: "string", description: "伤害类型。" },
+    damageType: { ...damageTypeSchema, description: "伤害类型。" },
     target: {
       type: "string",
       enum: targetSelectorValues,
@@ -225,9 +205,9 @@ export const ammoSchema = {
   required: ["ammoType"],
   description: "弹药配置。",
   properties: {
-    ammoType: { type: "string", description: "弹药口径/类型。" },
+    ammoType: { ...ammoTypeSchema, description: "弹药口径/类型。" },
     damage: { type: "number", minimum: 0, description: "子弹基础伤害。" },
-    damageType: { type: "string", description: "子弹基础伤害类型。" },
+    damageType: { ...damageTypeSchema, description: "子弹基础伤害类型。" },
     impactRadius: { type: "number", minimum: 0, description: "命中后基础伤害和命中效果的范围半径。" },
     projectile: projectileConfigSchema,
     damage_applier: { ...damageApplierListSchema, description: "子弹命中时追加的伤害段。" },
@@ -241,14 +221,14 @@ export const firearmPrototypeSchema = {
   required: ["acceptedAmmoTypes", "magazineSize", "reloadDurationMs"],
   description: "枪械配置。",
   properties: {
-    acceptedAmmoTypes: { type: "array", items: { type: "string" }, description: "可装填的弹药类型列表。" },
+    acceptedAmmoTypes: { type: "array", items: ammoTypeSchema, description: "可装填的弹药类型列表。" },
     magazineSize: { type: "integer", minimum: 1, description: "弹匣容量。" },
     reloadDurationMs: { type: "integer", minimum: 0, description: "装填耗时，单位毫秒。" },
     partialReload: { type: "boolean", default: true, description: "是否允许半弹匣补装。" },
     allowMixedMagazine: { type: "boolean", default: true, description: "是否允许弹匣内混装不同弹种。" },
     damageBonus: { type: "number", description: "枪械提供的固定伤害加成。" },
     damageMultiplier: { type: "number", description: "枪械最终伤害倍率；1 表示不变。" },
-    damageType: { type: "string", description: "枪械默认伤害类型。" },
+    damageType: { ...damageTypeSchema, description: "枪械默认伤害类型。" },
     projectileSpeed: { type: "number", minimum: 0.1, description: "默认投射物速度。" },
     maxDistance: { type: "number", minimum: 0.1, description: "默认最大射程。" },
     pierce: { type: "integer", minimum: 0, description: "默认穿透数量。" },
@@ -265,9 +245,9 @@ export const ammoRoundSchema = {
   properties: {
     ammoProtoId: { type: "string" },
     displayName: { type: "string" },
-    ammoType: { type: "string" },
+    ammoType: ammoTypeSchema,
     damage: { type: "number" },
-    damageType: { type: "string" },
+    damageType: damageTypeSchema,
     impactRadius: { type: "number" },
     damage_applier: damageApplierListSchema,
     effect_applier: applierListSchema,
@@ -637,8 +617,8 @@ export const entityPrototypeComponentsSchema = {
       additionalProperties: false,
       properties: {
         destructible: { type: "boolean", default: true, description: "是否可被伤害或破坏。" },
-        allowedDamageTypes: { type: "array", items: { type: "string" }, description: "允许造成伤害的类型。" },
-        immuneDamageTypes: { type: "array", items: { type: "string" }, description: "免疫的伤害类型。" },
+        allowedDamageTypes: { type: "array", items: damageTypeFilterSchema, description: "允许造成伤害的类型。" },
+        immuneDamageTypes: { type: "array", items: damageTypeFilterSchema, description: "免疫的伤害类型。" },
       },
     },
     obstacle: {
@@ -733,7 +713,7 @@ export function createItemDefinitionsSchema(options: { effectIds?: readonly stri
   };
 }
 
-export function createEntityDefinitionsSchema(): JSONSchema {
+export function createEntityDefinitionsSchema(options: { itemIds?: readonly string[]; entityIds?: readonly string[] } = {}): JSONSchema {
   return {
     $id: "ecs://schema/entity.schema.json",
     title: "Entity Definitions",
@@ -741,7 +721,7 @@ export function createEntityDefinitionsSchema(): JSONSchema {
     type: "object",
     additionalProperties: false,
     patternProperties: {
-      [prototypeIdPattern]: entityDefinitionSchema,
+      [prototypeIdPattern]: makeEntityDefinitionSchema(options),
     },
   };
 }
@@ -751,6 +731,65 @@ function makeItemDefinitionSchema(options: { effectIds?: readonly string[]; enti
     ...itemDefinitionSchema,
     properties: {
       components: makeItemComponentsSchema(options),
+    },
+  };
+}
+
+function makeEntityDefinitionSchema(options: { itemIds?: readonly string[]; entityIds?: readonly string[] }): SchemaObject {
+  return {
+    ...entityDefinitionSchema,
+    properties: {
+      components: makeEntityComponentsSchema(options),
+    },
+  };
+}
+
+function makeEntityComponentsSchema(options: { itemIds?: readonly string[]; entityIds?: readonly string[] }): SchemaObject {
+  const itemReference = makeItemReferenceSchema(options.itemIds);
+  const entityReference = makeEntityReferenceSchema(options.entityIds);
+  return {
+    ...entityPrototypeComponentsSchema,
+    properties: {
+      ...entityPrototypeComponentsSchema.properties,
+      loot: makeLootComponentSchema(itemReference, entityReference),
+    },
+  };
+}
+
+function makeLootComponentSchema(itemReference: SchemaObject, entityReference: SchemaObject): SchemaObject {
+  return {
+    ...lootComponentSchema,
+    properties: {
+      ...lootComponentSchema.properties,
+      containerPrototype: { ...entityReference, default: "loot-crate", description: "死亡后生成的箱子 entity prototype id。" },
+      entries: {
+        type: "array",
+        items: makeLootEntrySchema(lootEntrySchema, itemReference),
+        default: [],
+        description: "普通掉落列表；每项独立按 chance 掷骰。",
+      },
+      guarantee: {
+        ...lootComponentSchema.properties.guarantee,
+        properties: {
+          ...lootComponentSchema.properties.guarantee.properties,
+          pool: {
+            type: "array",
+            items: makeLootEntrySchema(lootGuaranteeEntrySchema, itemReference),
+            default: [],
+            description: "保底权重池。",
+          },
+        },
+      },
+    },
+  };
+}
+
+function makeLootEntrySchema(base: typeof lootEntrySchema | typeof lootGuaranteeEntrySchema, itemReference: SchemaObject): SchemaObject {
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      item: itemReference,
     },
   };
 }
@@ -814,7 +853,14 @@ function makeEntityReferenceSchema(entityIds: readonly string[] | undefined): Sc
   const sorted = [...(entityIds ?? [])].sort();
   return sorted.length
     ? { type: "string", enum: sorted, description: "引用 entity.jsonc 中存在的 entity prototype id。" }
-    : { type: "string", description: "引用 entity.jsonc 中的 entity prototype id。" };
+    : { type: "string", pattern: prototypeIdPattern, description: "引用 entity.jsonc 中的 entity prototype id。" };
+}
+
+function makeItemReferenceSchema(itemIds: readonly string[] | undefined): SchemaObject {
+  const sorted = [...(itemIds ?? [])].sort();
+  return sorted.length
+    ? { type: "string", enum: sorted, description: "引用 item.jsonc 中存在的 item prototype id。" }
+    : { type: "string", pattern: prototypeIdPattern, description: "引用 item.jsonc 中的 item prototype id。" };
 }
 
 function oneOrMany(item: JSONSchema): SchemaObject {
