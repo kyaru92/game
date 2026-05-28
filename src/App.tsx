@@ -47,10 +47,27 @@ interface CommandSuggestion {
   replaceTo?: number;
 }
 
+const COMMAND_HISTORY_LIMIT = 100;
+
+function commandExecutionResult(messages: string[]): string {
+  return messages.map((message) => message.trim()).filter(Boolean).join("\n") || "执行完成。";
+}
+
+function formatCommandExecutionLog(line: string, resultMessages: string[]): string {
+  return `指令：${line}\n结果：${commandExecutionResult(resultMessages)}`;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export default function App() {
   const runtime = useMemo<GameRuntime>(() => createGameRuntime(effectText, itemText, entityText), []);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const commandHistoryRef = useRef<string[]>([]);
+  const commandHistoryIndexRef = useRef<number | null>(null);
+  const commandDraftRef = useRef("");
   const logListRef = useRef<HTMLDivElement | null>(null);
   const movementKeysRef = useRef(new Set<string>());
   const shouldStickLogRef = useRef(true);
@@ -90,21 +107,78 @@ export default function App() {
     });
   }, [commandLine]);
 
+  const setCommandLineFromHistory = useCallback((line: string) => {
+    setCommandLine(line);
+    setCommandCursor(line.length);
+    setSuggestionIndex(0);
+    requestAnimationFrame(() => {
+      commandInputRef.current?.focus();
+      commandInputRef.current?.setSelectionRange(line.length, line.length);
+    });
+  }, []);
+
+  const pushCommandHistory = useCallback((line: string) => {
+    const history = commandHistoryRef.current;
+    history.push(line);
+    if (history.length > COMMAND_HISTORY_LIMIT) history.splice(0, history.length - COMMAND_HISTORY_LIMIT);
+    commandHistoryIndexRef.current = null;
+    commandDraftRef.current = "";
+  }, []);
+
+  const navigateCommandHistory = useCallback((direction: -1 | 1) => {
+    const history = commandHistoryRef.current;
+    if (!history.length) return false;
+
+    const currentIndex = commandHistoryIndexRef.current;
+    if (currentIndex === null) {
+      if (direction > 0) return false;
+      commandDraftRef.current = commandLine;
+      commandHistoryIndexRef.current = history.length - 1;
+      setCommandLineFromHistory(history[history.length - 1]);
+      return true;
+    }
+
+    if (direction < 0) {
+      const nextIndex = Math.max(0, currentIndex - 1);
+      commandHistoryIndexRef.current = nextIndex;
+      setCommandLineFromHistory(history[nextIndex]);
+      return true;
+    }
+
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= history.length) {
+      commandHistoryIndexRef.current = null;
+      setCommandLineFromHistory(commandDraftRef.current);
+    } else {
+      commandHistoryIndexRef.current = nextIndex;
+      setCommandLineFromHistory(history[nextIndex]);
+    }
+    return true;
+  }, [commandLine, setCommandLineFromHistory]);
+
   const handleCommandKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
+    const browsingHistory = commandLine.trim().length === 0;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (browsingHistory) {
+        if (navigateCommandHistory(event.key === "ArrowUp" ? -1 : 1)) event.preventDefault();
+        return;
+      }
+      if (showSuggestions) {
+        event.preventDefault();
+        setSuggestionIndex((value) => event.key === "ArrowDown"
+          ? (value + 1) % filteredSuggestions.length
+          : (value - 1 + filteredSuggestions.length) % filteredSuggestions.length);
+      }
+      return;
+    }
     if (!showSuggestions) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setSuggestionIndex((value) => (value + 1) % filteredSuggestions.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSuggestionIndex((value) => (value - 1 + filteredSuggestions.length) % filteredSuggestions.length);
-    } else if (event.key === "Tab") {
+    if (event.key === "Tab") {
       event.preventDefault();
       applyCommandSuggestion(filteredSuggestions[suggestionIndex] ?? filteredSuggestions[0]);
     } else if (event.key === "Escape") {
       setCommandFocused(false);
     }
-  }, [applyCommandSuggestion, filteredSuggestions, showSuggestions, suggestionIndex]);
+  }, [applyCommandSuggestion, commandLine, filteredSuggestions, navigateCommandHistory, showSuggestions, suggestionIndex]);
 
   const useItem = useCallback((itemId: string) => {
     const item = runtime.world.items[itemId];
@@ -214,14 +288,32 @@ export default function App() {
   const submitCommand = useCallback(() => {
     const line = commandLine.trim();
     if (!line) return;
+    pushCommandHistory(line);
     shouldStickLogRef.current = true;
-    runtime.world.log(`> ${line}`);
-    executeCommand(runtime, line);
-    runtime.world.tick();
+
+    const world = runtime.world;
+    const originalLog = world.log;
+    const resultMessages: string[] = [];
+    world.log = (message: string) => {
+      resultMessages.push(message);
+    };
+    try {
+      executeCommand(runtime, line);
+      runtime.world.tick();
+    } catch (error) {
+      resultMessages.push(`指令执行失败：${formatError(error)}`);
+    } finally {
+      world.log = originalLog;
+    }
+
+    world.log(formatCommandExecutionLog(line, resultMessages));
     setCommandLine("");
     setCommandCursor(0);
+    commandHistoryIndexRef.current = null;
+    commandDraftRef.current = "";
+    setSuggestionIndex(0);
     refreshUi();
-  }, [commandLine, refreshUi, runtime]);
+  }, [commandLine, pushCommandHistory, refreshUi, runtime]);
 
   useEffect(() => {
     setSuggestionIndex(0);
@@ -532,6 +624,8 @@ export default function App() {
               onKeyDown={handleCommandKeyDown}
               onKeyUp={(event) => setCommandCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
               onChange={(event) => {
+                commandHistoryIndexRef.current = null;
+                commandDraftRef.current = "";
                 setCommandLine(event.target.value);
                 setCommandCursor(event.target.selectionStart ?? event.target.value.length);
               }}
@@ -558,7 +652,7 @@ export default function App() {
                     <code>{suggestion.insert}</code>
                   </button>
                 ))}
-                <small>↑/↓ 选择，Tab 补全，Enter 执行</small>
+                <small>↑/↓ 选择建议；输入框为空时浏览历史；Tab 补全，Enter 执行</small>
               </div>
             )}
           </div>
