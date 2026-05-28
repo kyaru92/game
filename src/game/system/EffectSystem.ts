@@ -53,13 +53,13 @@ export class EffectSystem {
           this.world.log(`${target.name} 的 ${name} 已达最大层数 ${maxStacks}，刷新持续时间。`);
         }
         refreshRuntime(existing, durationMs, now);
-        this.world.addBurst(target.entityId, effectColor(effectId));
+        this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
         return;
       }
       effects[effectId] = makeActiveEffect(definition, behavior, 1, durationMs, now, sourceEntityId, sourceItemId);
       this.world.log(`${target.name} 获得效果：${name} x1，持续 ${formatDuration(durationMs)}。`);
-      this.world.addBurst(target.entityId, effectColor(effectId));
-      this.world.addFloatingText(target.entityId, name, effectColor(effectId));
+      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+      this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
       return;
     }
 
@@ -80,13 +80,13 @@ export class EffectSystem {
         layers.push(makeLayer(definition, durationMs, now));
         existing.stacks = layers.length;
         this.world.log(`${target.name} 的 ${name} 新增独立层，目前 ${layers.length} 层。`);
-        this.world.addBurst(target.entityId, effectColor(effectId));
+        this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
         return;
       }
       effects[effectId] = makeActiveEffect(definition, behavior, 1, durationMs, now, sourceEntityId, sourceItemId);
       this.world.log(`${target.name} 获得效果：${name} x1，持续 ${formatDuration(durationMs)}。`);
-      this.world.addBurst(target.entityId, effectColor(effectId));
-      this.world.addFloatingText(target.entityId, name, effectColor(effectId));
+      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+      this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
       return;
     }
 
@@ -101,14 +101,14 @@ export class EffectSystem {
       } else {
         this.world.log(`${target.name} 已有 ${name}，存续期间不允许再次施加。`);
       }
-      this.world.addBurst(target.entityId, effectColor(effectId));
+      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
       return;
     }
 
     effects[effectId] = makeActiveEffect(definition, "none", 1, durationMs, now, sourceEntityId, sourceItemId);
     this.world.log(`${target.name} 获得效果：${name}，持续 ${formatDuration(durationMs)}。`);
-    this.world.addBurst(target.entityId, effectColor(effectId));
-    this.world.addFloatingText(target.entityId, name, effectColor(effectId));
+    this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+    this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
   }
 
   update(): void {

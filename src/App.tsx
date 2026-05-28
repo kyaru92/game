@@ -182,7 +182,7 @@ export default function App() {
 
   const useItem = useCallback((itemId: string) => {
     const item = runtime.world.items[itemId];
-    if (!item || !runtime.world.inventory("player").includes(itemId)) {
+    if (!item || !runtime.world.services.inventory.has("player", itemId)) {
       runtime.world.log(`物品不在背包中：${itemId}`);
       refreshUi();
       return;
@@ -204,12 +204,12 @@ export default function App() {
       refreshUi();
       return;
     }
-    if (runtime.world.equipItem("player", itemId)) runtime.world.log(`切换装备：${displayItemName(item)}。`);
+    if (runtime.world.services.inventory.equipItem("player", itemId)) runtime.world.log(`切换装备：${displayItemName(item)}。`);
     refreshUi();
   }, [refreshUi, runtime]);
 
   const activateHotbarSlot = useCallback((slotIndex: number) => {
-    const itemId = runtime.world.hotbar("player")[slotIndex];
+    const itemId = runtime.world.services.inventory.hotbar("player")[slotIndex];
     if (!itemId) {
       runtime.world.log(`快捷栏 ${slotIndex + 1} 是空的。`);
       refreshUi();
@@ -225,14 +225,14 @@ export default function App() {
   }, [equipItem, refreshUi, runtime, useItem]);
 
   const assignHotbarSlot = useCallback((slotIndex: number, itemId: string) => {
-    if (runtime.world.setHotbarSlot("player", slotIndex, itemId)) {
+    if (runtime.world.services.inventory.setHotbarSlot("player", slotIndex, itemId)) {
       runtime.world.log(`${displayItemName(runtime.world.items[itemId])} 放入快捷栏 ${slotIndex + 1}。`);
     }
     refreshUi();
   }, [refreshUi, runtime]);
 
   const reloadActiveEquipment = useCallback(() => {
-    const itemId = runtime.world.activeItemId("player");
+    const itemId = runtime.world.services.inventory.activeItemId("player");
     if (!itemId) {
       runtime.world.log("当前没有装备。提示：按 1-7 切换装备。");
       refreshUi();
@@ -276,7 +276,7 @@ export default function App() {
   }, [openLootContainerId, refreshUi, runtime]);
 
   const organizeBackpack = useCallback(() => {
-    runtime.world.organizeInventory("player");
+    runtime.world.services.inventory.organize("player");
     refreshUi();
   }, [refreshUi, runtime]);
 
@@ -445,12 +445,12 @@ export default function App() {
     const point = eventToWorldPoint(canvas, event.clientX, event.clientY, runtime.world);
     if (!point) return;
     cursorPositionRef.current = [point.x, point.y];
-    const entity = runtime.world.entityAt(point.x, point.y);
+    const entity = runtime.world.services.spatial.entityAt(point.x, point.y);
     if (entity?.components.loot_container && runtime.lootSystem.canInteract("player", entity.entityId)) {
       openLootContainer(entity.entityId);
       return;
     }
-    const activeItemId = runtime.world.activeItemId("player");
+    const activeItemId = runtime.world.services.inventory.activeItemId("player");
     const activeItem = activeItemId ? runtime.world.items[activeItemId] : undefined;
 
     if (activeItem && isEquipmentItem(activeItem)) {
@@ -491,9 +491,9 @@ export default function App() {
 
   const world = runtime.world;
   const player = world.entities.player;
-  const inventory = world.inventory("player").map((itemId) => world.items[itemId]).filter((item): item is ItemInstance => Boolean(item));
-  const hotbarSlots = world.hotbar("player");
-  const activeItemId = world.activeItemId("player");
+  const inventory = world.services.inventory.get("player").map((itemId) => world.items[itemId]).filter((item): item is ItemInstance => Boolean(item));
+  const hotbarSlots = world.services.inventory.hotbar("player");
+  const activeItemId = world.services.inventory.activeItemId("player");
   const selectedEntity = selectedTarget.kind === "entity" && selectedTarget.entityId ? world.entities[selectedTarget.entityId] : undefined;
   const entities = Object.values(world.entities).sort((a, b) => (a.entityId === "player" ? -1 : b.entityId === "player" ? 1 : a.entityId.localeCompare(b.entityId)));
   const visibleEntities = entities.slice(0, 4);
@@ -934,7 +934,7 @@ function updatePlayerFreeMovement(runtime: GameRuntime, pressedKeys: Set<string>
   const unitsPerSecond = Math.max(0, Number(attrs.move_speed ?? 100)) / 25;
   if (unitsPerSecond <= 0) return;
 
-  runtime.world.tryMove(
+  runtime.world.services.spatial.tryMove(
     "player",
     (x / length) * unitsPerSecond * deltaSeconds,
     (y / length) * unitsPerSecond * deltaSeconds,
@@ -989,7 +989,7 @@ function eventToWorldPoint(canvas: HTMLCanvasElement, clientX: number, clientY: 
   const layout = getLayout(canvas, world);
   const x = (clientX - rect.left - layout.originX) / layout.scale;
   const y = (clientY - rect.top - layout.originY) / layout.scale;
-  if (!world.isInside(x, y)) return undefined;
+  if (!world.services.spatial.isInside(x, y)) return undefined;
   return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
 }
 
@@ -1048,14 +1048,14 @@ function drawSelection(context: CanvasRenderingContext2D, world: World, layout: 
       return;
     }
     if (isBoxCollider(entity)) {
-      const bounds = world.entityBounds(entity);
+      const bounds = world.services.spatial.entityBounds(entity);
       const topLeft = worldToCanvas(layout, bounds.left, bounds.top);
       const bottomRight = worldToCanvas(layout, bounds.right, bounds.bottom);
       context.strokeRect(topLeft.x - 5, topLeft.y - 5, bottomRight.x - topLeft.x + 10, bottomRight.y - topLeft.y + 10);
     } else {
       const center = worldToCanvas(layout, position.x, position.y);
       context.beginPath();
-      context.arc(center.x, center.y, world.entityRadius(entity) * layout.scale + 8, 0, Math.PI * 2);
+      context.arc(center.x, center.y, world.services.spatial.entityRadius(entity) * layout.scale + 8, 0, Math.PI * 2);
       context.stroke();
     }
     context.restore();
@@ -1083,7 +1083,7 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   const world = runtime.world;
   const position = entity.components.position ?? { x: 0, y: 0 };
   const center = worldToCanvas(layout, position.x, position.y);
-  const bounds = world.entityBounds(entity);
+  const bounds = world.services.spatial.entityBounds(entity);
   const bodyWidth = Math.max(24, bounds.width * layout.scale);
   const bodyHeight = Math.max(24, bounds.height * layout.scale);
   const visualRadius = Math.max(bodyWidth, bodyHeight) / 2;

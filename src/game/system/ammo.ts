@@ -44,7 +44,7 @@ export function consumeItemQuantity(world: World, ownerId: string, item: ItemIns
   if (amount <= 0) return;
   const stacking = item.components.stacking;
   if (!stacking || Number(stacking.max ?? 1) <= 1) {
-    world.removeInventoryItem(ownerId, item.instanceId);
+    world.services.inventory.removeItem(ownerId, item.instanceId);
     return;
   }
   const remaining = itemQuantity(item) - amount;
@@ -52,5 +52,5 @@ export function consumeItemQuantity(world: World, ownerId: string, item: ItemIns
     stacking.quantity = remaining;
     return;
   }
-  world.removeInventoryItem(ownerId, item.instanceId);
+  world.services.inventory.removeItem(ownerId, item.instanceId);
 }

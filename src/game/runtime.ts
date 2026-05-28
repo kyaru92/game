@@ -34,9 +34,9 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
   }
   ["basic-pistol", "impact-hammer", "adrenaline-injector", "regen-serum", "poison-cloud-grenade", "blink-device", "monster-egg"].forEach((protoId, index) => {
     const itemId = grantedItems[protoId];
-    if (itemId) world.setHotbarSlot("player", index, itemId);
+    if (itemId) world.services.inventory.setHotbarSlot("player", index, itemId);
   });
-  if (grantedItems["basic-pistol"]) world.equipItem("player", grantedItems["basic-pistol"]);
+  if (grantedItems["basic-pistol"]) world.services.inventory.equipItem("player", grantedItems["basic-pistol"]);
   world.log("Canvas ECS MVP 已启动：WASD/方向键移动，1-7 快捷栏，B 打开背包，鼠标左键使用当前装备，R 装填枪械。");
 
   return { world, activationSystem, firearmSystem, lootSystem, effectSystem, attributeSystem };

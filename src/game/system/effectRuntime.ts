@@ -45,7 +45,7 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Js
   const resources = (entity.components.resources ??= {});
   if (attr === "hp" && amount < 0) {
     const damageType = String(periodic.damageType ?? definition.damageType ?? definition.id ?? "effect");
-    world.applyDamage(entity.entityId, -amount, damageType, effectName);
+    world.services.damage.applyDamage(entity.entityId, -amount, damageType, effectName);
     return;
   }
   if (attr in resources) {
@@ -60,7 +60,7 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Js
     const color = delta >= 0 ? "#4ade80" : "#fb7185";
     const deltaText = Number.isInteger(delta) ? String(delta) : delta.toFixed(2);
     world.log(`${entity.name} 受到 ${effectName} 周期效果：${attr} ${sign}${deltaText} -> ${resources[attr]}`);
-    world.addFloatingText(entity.entityId, `${sign}${deltaText} ${attr}`, color);
+    world.services.vfx.addFloatingText(entity.entityId, `${sign}${deltaText} ${attr}`, color);
     return;
   }
 

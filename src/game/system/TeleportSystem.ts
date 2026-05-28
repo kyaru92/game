@@ -22,13 +22,13 @@ export class TeleportSystem {
     if (!actor) return;
     const from = actor.components.position ?? { x: 0, y: 0 };
     const [x, y] = target.position;
-    if (!this.world.canEntityOccupy(actor.entityId, x, y)) {
-      const occupying = this.world.blockingEntityFor(actor.entityId, x, y);
+    if (!this.world.services.spatial.canEntityOccupy(actor.entityId, x, y)) {
+      const occupying = this.world.services.spatial.blockingEntityFor(actor.entityId, x, y);
       this.world.log(occupying ? `${occupying.name} 占据了闪现目标。` : "闪现目标不可到达。");
       return;
     }
     actor.components.position = { x: roundCoord(x), y: roundCoord(y) };
-    this.world.addTeleportTrail([from.x, from.y], [x, y]);
+    this.world.services.vfx.addTeleportTrail([from.x, from.y], [x, y]);
     this.world.log(`${actor.name} 闪现到 ${describeTarget(this.world, target)}。`);
   }
 }

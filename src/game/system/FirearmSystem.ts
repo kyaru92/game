@@ -19,7 +19,7 @@ export class FirearmSystem {
   }
 
   reload(actorId: string, inventoryIndex: number): void {
-    const itemId = this.world.inventory(actorId)[inventoryIndex];
+    const itemId = this.world.services.inventory.itemAt(actorId, inventoryIndex);
     if (!itemId) {
       this.world.log(`背包索引不存在：${inventoryIndex}`);
       return;
@@ -29,7 +29,7 @@ export class FirearmSystem {
 
   reloadItem(actorId: string, itemId: string): void {
     const item = this.world.items[itemId];
-    if (!item || !this.world.inventory(actorId).includes(itemId)) {
+    if (!item || !this.world.services.inventory.has(actorId, itemId)) {
       this.world.log(`物品不在背包中：${itemId}`);
       return;
     }
@@ -137,7 +137,7 @@ export class FirearmSystem {
 
   private availableAmmoCount(ownerId: string, firearm: JsonObj, firearmItemId: string): number {
     let count = 0;
-    for (const itemId of this.world.inventory(ownerId)) {
+    for (const itemId of this.world.services.inventory.get(ownerId)) {
       if (itemId === firearmItemId) continue;
       const item = this.world.items[itemId];
       if (!item?.components.ammo || !acceptsAmmo(firearm, item.components.ammo)) continue;
@@ -148,7 +148,7 @@ export class FirearmSystem {
 
   private takeAmmoRounds(ownerId: string, firearm: JsonObj, firearmItemId: string, count: number): JsonObj[] {
     const rounds: JsonObj[] = [];
-    const inventory = this.world.inventory(ownerId);
+    const inventory = this.world.services.inventory.get(ownerId);
     for (const itemId of [...inventory]) {
       if (rounds.length >= count || itemId === firearmItemId) continue;
       const item = this.world.items[itemId];

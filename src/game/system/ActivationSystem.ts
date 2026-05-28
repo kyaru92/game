@@ -8,7 +8,7 @@ export class ActivationSystem {
   constructor(private readonly world: World) {}
 
   startUse(actorId: string, inventoryIndex: number, target: Target): void {
-    const itemId = this.world.inventory(actorId)[inventoryIndex];
+    const itemId = this.world.services.inventory.itemAt(actorId, inventoryIndex);
     if (!itemId) {
       this.world.log(`背包索引不存在：${inventoryIndex}`);
       return;
@@ -29,7 +29,7 @@ export class ActivationSystem {
       return;
     }
 
-    const inventoryIndex = this.world.inventory(actorId).indexOf(itemId);
+    const inventoryIndex = this.world.services.inventory.indexOf(actorId, itemId);
     const item = this.world.items[itemId];
     if (!item || inventoryIndex < 0) {
       this.world.log(`物品不在背包中：${itemId}`);
@@ -86,7 +86,7 @@ export class ActivationSystem {
   }
 
   completeActivation(actorId: string, itemId: string, target: Target): void {
-    const inventory = this.world.inventory(actorId);
+    const inventory = this.world.services.inventory.get(actorId);
     const inventoryIndex = inventory.indexOf(itemId);
     const item = this.world.items[itemId];
     if (!item || inventoryIndex < 0) {
@@ -124,7 +124,7 @@ export class ActivationSystem {
       activation.charges = Number(activation.charges ?? 1) - 1;
       if (activation.consumeWhenDepleted && activation.charges <= 0) {
         const itemName = displayItemName(item);
-        this.world.removeInventoryItem(actorId, item.instanceId);
+        this.world.services.inventory.removeItem(actorId, item.instanceId);
         this.world.log(`${itemName} 已耗尽并被移除。`);
       }
     }

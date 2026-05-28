@@ -188,7 +188,7 @@ export class LootSystem {
     }
 
     container.revealedItemIds.splice(index, 1);
-    this.world.addInventoryItem(actorId, item, { verb: "拾取", merge: false, autoHotbar: false });
+    this.world.services.inventory.addItem(actorId, item, { verb: "拾取", merge: false, autoHotbar: false });
     this.removeContainerIfEmpty(containerEntity, container);
     return true;
   }
@@ -247,8 +247,8 @@ export class LootSystem {
     if (!runtime) return;
 
     runtime.hiddenItemIds = generated.map((entry) => this.createLootItem(entry).instanceId);
-    this.world.addBurst(container.entityId, String(container.components.display?.color ?? "#f59e0b"));
-    this.world.addFloatingText(container.entityId, "掉落箱", "#facc15");
+    this.world.services.vfx.addBurst(container.entityId, String(container.components.display?.color ?? "#f59e0b"));
+    this.world.services.vfx.addFloatingText(container.entityId, "掉落箱", "#facc15");
     this.world.log(`${entity.name} 掉落了一个箱子。`);
   }
 
@@ -270,8 +270,8 @@ export class LootSystem {
     for (const [dx, dy] of offsets) {
       const x = origin.x + dx;
       const y = origin.y + dy;
-      if (!this.world.isInside(x, y, 0.45)) continue;
-      if (this.world.canEntityOccupy(probeId, x, y)) {
+      if (!this.world.services.spatial.isInside(x, y, 0.45)) continue;
+      if (this.world.services.spatial.canEntityOccupy(probeId, x, y)) {
         delete this.world.entities[probeId];
         return { x, y };
       }

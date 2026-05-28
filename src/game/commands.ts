@@ -101,7 +101,7 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
   const fallback = findSpawnPosition(runtime);
   const x = isNumber(prefix[xyStart]) ? Number(prefix[xyStart]) : fallback[0];
   const y = isNumber(prefix[xyStart + 1]) ? Number(prefix[xyStart + 1]) : fallback[1];
-  if (!world.isInside(x, y, world.defaultEntityRadius)) throw new Error("生成坐标超出地图");
+  if (!world.services.spatial.isInside(x, y, world.defaultEntityRadius)) throw new Error("生成坐标超出地图");
 
   const overrides = jsonStart >= 0 ? parseJsonValue(raw.slice(jsonStart)) : {};
   if (typeof overrides !== "object" || Array.isArray(overrides)) throw new Error("component-overrides-json 必须是对象");
@@ -111,12 +111,12 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
     position: { x, y },
     overrides: overrides as JsonObj,
   });
-  if (!world.canEntityOccupy(entity.entityId, x, y)) {
+  if (!world.services.spatial.canEntityOccupy(entity.entityId, x, y)) {
     delete world.entities[entity.entityId];
     throw new Error("生成位置被占用或碰撞箱超出地图");
   }
   const position = entity.components.position ?? { x, y };
-  world.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
+  world.services.vfx.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
   world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${formatCoord(position.x)},${formatCoord(position.y)})。`);
 }
 
@@ -183,7 +183,7 @@ function reloadFirearm(runtime: GameRuntime, tokens: string[]): void {
   const world = runtime.world;
   const entityId = world.findEntity(tokens[1] ?? "");
   if (!entityId) throw new Error("用法：reload <entity> [slotIndex]");
-  const inventory = world.inventory(entityId);
+  const inventory = world.services.inventory.get(entityId);
   const explicitIndex = isNumber(tokens[2]) ? Number(tokens[2]) - 1 : undefined;
   const inventoryIndex = explicitIndex ?? inventory.findIndex((itemId) => Boolean(world.items[itemId]?.components.firearm));
   if (!Number.isInteger(inventoryIndex) || inventoryIndex < 0 || inventoryIndex >= inventory.length) throw new Error("找不到可装填的枪械槽位");
@@ -203,7 +203,7 @@ function changeHp(runtime: GameRuntime, tokens: string[], sign: 1 | -1): void {
   const amount = Number(tokens[2]);
   if (!entityId || !Number.isFinite(amount)) throw new Error("用法：damage <entity> <amount> [damageType] / heal <entity> <amount>");
   if (sign < 0) {
-    world.applyDamage(entityId, amount, tokens[3] ?? "generic", "指令伤害");
+    world.services.damage.applyDamage(entityId, amount, tokens[3] ?? "generic", "指令伤害");
     return;
   }
   const entity = world.entities[entityId];
@@ -214,7 +214,7 @@ function changeHp(runtime: GameRuntime, tokens: string[], sign: 1 | -1): void {
   resources.hp = Math.max(0, Math.min(maxHp, before + sign * amount));
   if (resources.hp > 0) delete entity.components._deathLogged;
   const delta = Number(resources.hp) - before;
-  world.addFloatingText(entityId, `${delta >= 0 ? "+" : ""}${delta} hp`, delta >= 0 ? "#4ade80" : "#fb7185");
+  world.services.vfx.addFloatingText(entityId, `${delta >= 0 ? "+" : ""}${delta} hp`, delta >= 0 ? "#4ade80" : "#fb7185");
   world.log(`${entity.name} hp ${before} -> ${resources.hp}`);
 }
 
@@ -252,7 +252,7 @@ function findSpawnPosition(runtime: GameRuntime): [number, number] {
   const world = runtime.world;
   for (let y = 1; y < world.height; y += 1) {
     for (let x = 1; x < world.width; x += 1) {
-      if (world.isInside(x, y, world.defaultEntityRadius) && !world.entityAt(x, y)) return [x, y];
+      if (world.services.spatial.isInside(x, y, world.defaultEntityRadius) && !world.services.spatial.entityAt(x, y)) return [x, y];
     }
   }
   return [1, 1];

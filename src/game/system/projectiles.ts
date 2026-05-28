@@ -131,7 +131,7 @@ export function findProjectileHit(world: World, projectileEntity: Entity, from: 
     if (ignored.has(entity.entityId) || entity.components.projectile) continue;
     const position = entity.components.position;
     if (!position) continue;
-    const hitRadius = world.entityRadius(entity) + Number(projectile.radius ?? 0.05);
+    const hitRadius = world.services.spatial.entityRadius(entity) + Number(projectile.radius ?? 0.05);
     const segment = distanceToSegment(position.x, position.y, from, to);
     if (segment.distance > hitRadius) continue;
     if (!best || segment.distanceAlong < best.distanceAlong) {
@@ -184,11 +184,11 @@ function applyProjectileDamage(world: World, applier: JsonObj, sourceEntityId: s
   if (targetMode === "impact_area" || targetMode === "activation_area" || radius > 0) {
     const targets = resolveAreaTargets(world, { kind: "position", position: impactPosition }, radius || 2);
     if (!targets.length) world.log(`${sourceName} 的范围伤害没有命中目标。`);
-    for (const targetEntityId of targets) world.applyDamage(targetEntityId, amount, damageType, sourceName);
+    for (const targetEntityId of targets) world.services.damage.applyDamage(targetEntityId, amount, damageType, sourceName);
     return;
   }
   const target = resolveProjectileTarget(world, targetMode, sourceEntityId, impactTarget);
-  if (target.kind === "entity" && target.entityId) world.applyDamage(target.entityId, amount, damageType, sourceName);
+  if (target.kind === "entity" && target.entityId) world.services.damage.applyDamage(target.entityId, amount, damageType, sourceName);
 }
 
 function applyProjectileEffect(world: World, applier: JsonObj, sourceEntityId: string, sourceItemId: string | undefined, impactTarget: Target, impactPosition: [number, number]): void {

@@ -48,7 +48,7 @@ export class ProjectileSystem {
     }
 
     entity.components.position = next;
-    if (distanceToTarget <= moveDistance || projectile.remainingDistance <= 0 || !this.world.isInside(next.x, next.y)) {
+    if (distanceToTarget <= moveDistance || projectile.remainingDistance <= 0 || !this.world.services.spatial.isInside(next.x, next.y)) {
       this.impact(entity, undefined);
     }
   }
@@ -61,7 +61,7 @@ export class ProjectileSystem {
       ? { kind: "entity", entityId: hitEntity.entityId }
       : { kind: "position", position: [position.x, position.y] };
     applyProjectilePayload(this.world, projectile, impactTarget, [position.x, position.y]);
-    this.world.addBurst(projectileEntity.entityId, String(projectile.color ?? "#f8fafc"));
+    this.world.services.vfx.addBurst(projectileEntity.entityId, String(projectile.color ?? "#f8fafc"));
 
     if (hitEntity && Number(projectile.pierce ?? 0) > 0) {
       projectile.pierce = Number(projectile.pierce) - 1;

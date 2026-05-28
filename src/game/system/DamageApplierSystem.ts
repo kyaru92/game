@@ -28,7 +28,7 @@ export class DamageApplierSystem {
           this.world.log(`${displayItemName(item)} 的范围伤害没有命中目标。`);
           continue;
         }
-        for (const targetEntityId of targets) this.world.applyDamage(targetEntityId, amount, damageType, displayItemName(item));
+        for (const targetEntityId of targets) this.world.services.damage.applyDamage(targetEntityId, amount, damageType, displayItemName(item));
         continue;
       }
 
@@ -38,7 +38,7 @@ export class DamageApplierSystem {
         this.world.log(`${displayItemName(item)} 需要实体伤害目标。`);
         continue;
       }
-      this.world.applyDamage(target.entityId, amount, damageType, displayItemName(item));
+      this.world.services.damage.applyDamage(target.entityId, amount, damageType, displayItemName(item));
     }
   }
 }
