@@ -181,6 +181,44 @@ export class EffectApplierSystem {
   }
 }
 
+export class DamageApplierSystem {
+  constructor(private readonly world: World) {
+    world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
+  }
+
+  private onItemActivation(event: EventData): void {
+    const item = this.world.items[event.data.itemId];
+    const appliers = normalizeArray(item.components.damage_applier);
+    for (const applier of appliers) {
+      const amount = Number(applier.amount ?? applier.damage ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        this.world.log(`${displayItemName(item)} 的 damage_applier 缺少有效 amount。`);
+        continue;
+      }
+
+      const damageType = String(applier.damageType ?? "generic");
+      const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+      if (radius > 0) {
+        const targets = resolveAreaTargets(this.world, event.data.target, radius);
+        if (!targets.length) {
+          this.world.log(`${displayItemName(item)} 的范围伤害没有命中目标。`);
+          continue;
+        }
+        for (const targetEntityId of targets) this.world.applyDamage(targetEntityId, amount, damageType, displayItemName(item));
+        continue;
+      }
+
+      const targetMode = String(applier.target ?? "activation_target");
+      const target = resolveEffectTarget(this.world, targetMode, String(event.data.actorId), event.data.target);
+      if (target.kind !== "entity" || !target.entityId) {
+        this.world.log(`${displayItemName(item)} 需要实体伤害目标。`);
+        continue;
+      }
+      this.world.applyDamage(target.entityId, amount, damageType, displayItemName(item));
+    }
+  }
+}
+
 export class TeleportSystem {
   constructor(private readonly world: World) {
     world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
@@ -196,13 +234,15 @@ export class TeleportSystem {
       return;
     }
     const actor = this.world.entities[String(event.data.actorId)];
+    if (!actor) return;
     const from = actor.components.position ?? { x: 0, y: 0 };
     const [x, y] = target.position;
-    if (!this.world.isInside(x, y) || this.world.isBlocked(x, y)) {
-      this.world.log("闪现目标不可到达。");
+    if (!this.world.canEntityOccupy(actor.entityId, x, y)) {
+      const occupying = this.world.blockingEntityFor(actor.entityId, x, y);
+      this.world.log(occupying ? `${occupying.name} 占据了闪现目标。` : "闪现目标不可到达。");
       return;
     }
-    actor.components.position = { x, y };
+    actor.components.position = { x: roundCoord(x), y: roundCoord(y) };
     this.world.addTeleportTrail([from.x, from.y], [x, y]);
     this.world.log(`${actor.name} 闪现到 ${describeTarget(this.world, target)}。`);
   }
@@ -225,7 +265,7 @@ export class EntitySpawnerSystem {
     }
 
     const [x, y] = target.position;
-    if (!this.world.isInside(x, y)) {
+    if (!this.world.isInside(x, y, this.world.defaultEntityRadius)) {
       this.world.log("生成目标超出地图。");
       return;
     }
@@ -233,7 +273,7 @@ export class EntitySpawnerSystem {
       this.world.log("生成目标是障碍物，无法孵化。");
       return;
     }
-    const occupying = this.world.entityAt(x, y);
+    const occupying = this.world.entityAt(x, y, this.world.defaultEntityRadius);
     if (!spawner.allowOccupied && occupying) {
       this.world.log(`${occupying.name} 占据了生成位置，无法孵化。`);
       return;
@@ -494,8 +534,8 @@ function validateTarget(world: World, item: ItemInstance, target: Target, actorI
         ? { x: target.position[0], y: target.position[1] }
         : undefined;
     if (targetPosition) {
-      const distance = Math.abs(actorPosition.x - targetPosition.x) + Math.abs(actorPosition.y - targetPosition.y);
-      if (distance > range) return `${displayItemName(item)} 超出射程：${distance}/${range}。`;
+      const distance = Math.hypot(actorPosition.x - targetPosition.x, actorPosition.y - targetPosition.y);
+      if (distance > range) return `${displayItemName(item)} 超出射程：${formatDistance(distance)}/${range}。`;
     }
   }
 
@@ -520,15 +560,24 @@ function resolveAreaTargets(world: World, activationTarget: Target, radius: numb
     center = world.entities[activationTarget.entityId]?.components.position;
   }
   if (!center) return [];
+  const areaCenter = center;
 
   return Object.values(world.entities)
     .filter((entity) => {
       const position = entity.components.position;
       if (!position) return false;
-      const distance = Math.abs(position.x - center.x) + Math.abs(position.y - center.y);
+      const distance = Math.hypot(position.x - areaCenter.x, position.y - areaCenter.y);
       return distance <= radius;
     })
     .map((entity) => entity.entityId);
+}
+
+function formatDistance(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function roundCoord(value: number): number {
+  return Number(value.toFixed(3));
 }
 
 function makeLayer(definition: JsonObj, durationMs: number, now: number): JsonObj {
@@ -569,6 +618,11 @@ function applyPeriodicChange(world: World, entity: Entity, definition: JsonObj, 
   const effectName = String(definition.name ?? definition.id ?? "effect");
 
   const resources = (entity.components.resources ??= {});
+  if (attr === "hp" && amount < 0) {
+    const damageType = String(periodic.damageType ?? definition.damageType ?? definition.id ?? "effect");
+    world.applyDamage(entity.entityId, -amount, damageType, effectName);
+    return;
+  }
   if (attr in resources) {
     const before = Number(resources[attr]);
     const maxKey = `max_${attr}`;

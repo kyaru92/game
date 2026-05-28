@@ -1,5 +1,6 @@
 import { parse } from "jsonc-parser";
 import type { GameRuntime, JsonObj } from "./types";
+import { formatCoord } from "./utils";
 
 const COMMAND_HELP = [
   "指令：",
@@ -12,7 +13,8 @@ const COMMAND_HELP = [
   "    例：item @player debug-potion {\"display\":{\"name\":\"调试药水\"},\"targeting\":{\"mode\":\"self\"},\"activation\":{\"max\":3},\"effect_applier\":[{\"kind\":\"regeneration\",\"target\":\"self\"}]}",
   "  give <entity> <itemProtoId>",
   "  apply <effectId> <entity>",
-  "  damage <entity> <amount> / heal <entity> <amount>",
+  "  damage <entity> <amount> [damageType] / heal <entity> <amount>",
+  "    例：damage crate-1 15 impact   # 木箱只接受 impact/fire 等允许类型",
   "  remove <entity>",
   "  entities",
 ].join("\n");
@@ -36,7 +38,7 @@ export function executeCommand(runtime: GameRuntime, line: string): void {
           const pos = entity.components.position ?? { x: 0, y: 0 };
           const res = entity.components.resources;
           const hp = res ? ` hp=${res.hp ?? "?"}/${res.max_hp ?? "?"}` : "";
-          return `${entity.entityId}: ${entity.name} @(${pos.x},${pos.y})${hp}`;
+          return `${entity.entityId}: ${entity.name} @(${formatCoord(pos.x)},${formatCoord(pos.y)})${hp}`;
         }).join("\n") || "没有实体。");
         return;
       case "spawn":
@@ -88,10 +90,10 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
   const maybeEntityId = prefix[2] && !isNumber(prefix[2]) ? normalizeId(prefix[2]) : undefined;
   if (maybeEntityId && world.entities[maybeEntityId]) throw new Error(`实体已存在：${maybeEntityId}`);
   const xyStart = maybeEntityId ? 3 : 2;
-  const fallback = findSpawnX(worldEntitiesPositions(runtime), world.gridWidth, world.gridHeight);
+  const fallback = findSpawnPosition(runtime);
   const x = isNumber(prefix[xyStart]) ? Number(prefix[xyStart]) : fallback[0];
   const y = isNumber(prefix[xyStart + 1]) ? Number(prefix[xyStart + 1]) : fallback[1];
-  if (!world.isInside(x, y)) throw new Error("生成坐标超出地图");
+  if (!world.isInside(x, y, world.defaultEntityRadius)) throw new Error("生成坐标超出地图");
 
   const overrides = jsonStart >= 0 ? parseJsonValue(raw.slice(jsonStart)) : {};
   if (typeof overrides !== "object" || Array.isArray(overrides)) throw new Error("component-overrides-json 必须是对象");
@@ -101,8 +103,12 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
     position: { x, y },
     overrides: overrides as JsonObj,
   });
+  if (!world.canEntityOccupy(entity.entityId, x, y)) {
+    delete world.entities[entity.entityId];
+    throw new Error("生成位置被占用或碰撞箱超出地图");
+  }
   world.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
-  world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${entity.components.position.x},${entity.components.position.y})。`);
+  world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${formatCoord(entity.components.position.x)},${formatCoord(entity.components.position.y)})。`);
 }
 
 function setComponent(runtime: GameRuntime, raw: string, tokens: string[]): void {
@@ -149,7 +155,11 @@ function changeHp(runtime: GameRuntime, tokens: string[], sign: 1 | -1): void {
   const world = runtime.world;
   const entityId = world.findEntity(tokens[1] ?? "");
   const amount = Number(tokens[2]);
-  if (!entityId || !Number.isFinite(amount)) throw new Error("用法：damage/heal <entity> <amount>");
+  if (!entityId || !Number.isFinite(amount)) throw new Error("用法：damage <entity> <amount> [damageType] / heal <entity> <amount>");
+  if (sign < 0) {
+    world.applyDamage(entityId, amount, tokens[3] ?? "generic", "指令伤害");
+    return;
+  }
   const entity = world.entities[entityId];
   const resources = (entity.components.resources ??= { hp: 1, max_hp: 1 });
   const before = Number(resources.hp ?? 0);
@@ -192,19 +202,11 @@ function isNumber(value: string | undefined): boolean {
   return value !== undefined && value.trim() !== "" && Number.isFinite(Number(value));
 }
 
-function worldEntitiesPositions(runtime: GameRuntime): Set<string> {
-  const positions = new Set<string>();
-  for (const entity of Object.values(runtime.world.entities)) {
-    const position = entity.components.position;
-    if (position) positions.add(`${position.x},${position.y}`);
-  }
-  return positions;
-}
-
-function findSpawnX(occupied: Set<string>, width: number, height: number): [number, number] {
-  for (let y = 1; y < height; y += 1) {
-    for (let x = 1; x < width; x += 1) {
-      if (!occupied.has(`${x},${y}`)) return [x, y];
+function findSpawnPosition(runtime: GameRuntime): [number, number] {
+  const world = runtime.world;
+  for (let y = 1; y < world.height; y += 1) {
+    for (let x = 1; x < world.width; x += 1) {
+      if (world.isInside(x, y, world.defaultEntityRadius) && !world.entityAt(x, y)) return [x, y];
     }
   }
   return [1, 1];

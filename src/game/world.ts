@@ -9,9 +9,24 @@ export interface CreateEntityOptions {
   overrides?: JsonObj;
 }
 
+export interface MoveOptions {
+  logFailure?: boolean;
+}
+
+export interface CollisionBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
 export class World {
-  readonly gridWidth = 16;
-  readonly gridHeight = 12;
+  readonly width = 16;
+  readonly height = 12;
+  readonly defaultEntityRadius = 0.35;
+  readonly selectionRadius = 0.45;
   readonly effects: JsonObj;
   readonly itemPrototypes: JsonObj;
   readonly entityPrototypes: JsonObj;
@@ -21,19 +36,6 @@ export class World {
   readonly messages: string[] = [];
   readonly visualEvents: VisualEvent[] = [];
   readonly systems: Array<{ update?: () => void }> = [];
-  readonly blockers = new Set<string>([
-    "4,2",
-    "5,2",
-    "6,2",
-    "9,4",
-    "9,5",
-    "9,6",
-    "2,8",
-    "3,8",
-    "12,8",
-    "13,8",
-    "13,9",
-  ]);
 
   private nextItemNo = 1;
   private nextVisualNo = 1;
@@ -173,46 +175,152 @@ export class World {
         continue;
       }
       this.addBurst(entity.entityId, "#f43f5e");
-      this.removeEntity(entity.entityId, "生命归零并消失");
+      this.removeEntity(entity.entityId, entity.components.obstacle ? "被摧毁" : "生命归零并消失");
     }
   }
 
-  isInside(x: number, y: number): boolean {
-    return x >= 0 && y >= 0 && x < this.gridWidth && y < this.gridHeight;
+  isInside(x: number, y: number, radius = 0): boolean {
+    return x >= radius && y >= radius && x <= this.width - radius && y <= this.height - radius;
   }
 
-  isBlocked(x: number, y: number): boolean {
-    return this.blockers.has(`${x},${y}`);
+  isBlocked(_x: number, _y: number): boolean {
+    return false;
   }
 
-  entityAt(x: number, y: number): Entity | undefined {
-    return Object.values(this.entities).find((entity) => {
-      const position = entity.components.position ?? { x: 0, y: 0 };
-      return position.x === x && position.y === y;
+  entityBounds(entity: Entity, position = entity.components.position ?? { x: 0, y: 0 }): CollisionBox {
+    return collisionBox(entity.components, position, this.defaultEntityRadius);
+  }
+
+  entityRadius(entity: Entity): number {
+    const bounds = this.entityBounds(entity);
+    return Math.max(bounds.width, bounds.height) / 2;
+  }
+
+  entityAt(x: number, y: number, padding = this.selectionRadius, exceptEntityId?: string): Entity | undefined {
+    let closest: Entity | undefined;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const entity of Object.values(this.entities)) {
+      if (entity.entityId === exceptEntityId) continue;
+      const position = entity.components.position;
+      if (!position) continue;
+      const bounds = expandBox(this.entityBounds(entity), padding);
+      if (!pointInBox(x, y, bounds)) continue;
+      const distance = distanceToBoxCenter(x, y, bounds);
+      if (distance < closestDistance) {
+        closest = entity;
+        closestDistance = distance;
+      }
+    }
+    return closest;
+  }
+
+  canEntityOccupy(entityId: string, x: number, y: number): boolean {
+    const entity = this.entities[entityId];
+    return Boolean(entity) && this.canOccupy(entityId, entity, x, y);
+  }
+
+  blockingEntityFor(entityId: string, x: number, y: number): Entity | undefined {
+    const entity = this.entities[entityId];
+    return entity ? this.blockingEntityAt(entityId, this.entityBounds(entity, { x, y })) : undefined;
+  }
+
+  applyDamage(entityId: string, amount: number, damageType = "generic", sourceName = "伤害"): boolean {
+    const entity = this.entities[entityId];
+    if (!entity || !Number.isFinite(amount) || amount <= 0) return false;
+
+    const damageable = entity.components.damageable ?? {};
+    if (damageable.destructible === false) {
+      this.log(`${entity.name} 是固定障碍，无法被破坏。`);
+      return false;
+    }
+
+    const normalizedType = damageType.trim().toLowerCase() || "generic";
+    if (!isDamageTypeAllowed(damageable, normalizedType)) {
+      this.log(`${entity.name} 不会受到 ${normalizedType} 类型伤害。`);
+      return false;
+    }
+
+    const resources = entity.components.resources;
+    if (!resources || typeof resources.hp !== "number") {
+      this.log(`${entity.name} 没有可被伤害的生命资源。`);
+      return false;
+    }
+
+    const before = Number(resources.hp ?? 0);
+    const maxHp = Number(resources.max_hp ?? Math.max(before, amount));
+    resources.max_hp ??= maxHp;
+    resources.hp = Math.max(0, before - amount);
+    const delta = before - Number(resources.hp);
+    if (delta <= 0) return false;
+
+    this.addFloatingText(entityId, `-${formatNumber(delta)} hp`, "#fb7185");
+    this.log(`${entity.name} 受到 ${sourceName}：${normalizedType} ${formatNumber(delta)}，hp ${formatNumber(before)} -> ${formatNumber(resources.hp)}。`);
+    return true;
+  }
+
+  tryMove(entityId: string, dx: number, dy: number, options: MoveOptions = {}): boolean {
+    const entity = this.entities[entityId];
+    if (!entity || !Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+    const position = entity.components.position ?? { x: 0, y: 0 };
+    const target = this.clampToWorld(entity, position.x + dx, position.y + dy);
+    if (samePosition(position, target)) {
+      if (options.logFailure ?? true) this.log("已经到达世界边界。");
+      return false;
+    }
+    if (this.canOccupy(entityId, entity, target.x, target.y)) {
+      this.setPosition(entity, target.x, target.y);
+      return true;
+    }
+
+    const axisTargets = [
+      this.clampToWorld(entity, position.x + dx, position.y),
+      this.clampToWorld(entity, position.x, position.y + dy),
+    ];
+    for (const axisTarget of axisTargets) {
+      if (samePosition(position, axisTarget)) continue;
+      if (!this.canOccupy(entityId, entity, axisTarget.x, axisTarget.y)) continue;
+      this.setPosition(entity, axisTarget.x, axisTarget.y);
+      return true;
+    }
+
+    if (options.logFailure ?? true) {
+      const other = this.blockingEntityFor(entityId, target.x, target.y);
+      this.log(other ? `${other.name} 挡住了去路。` : "无法移动到该位置。");
+    }
+    return false;
+  }
+
+  private clampToWorld(entity: Entity, x: number, y: number): { x: number; y: number } {
+    const bounds = this.entityBounds(entity, { x, y });
+    let clampedX = x;
+    let clampedY = y;
+    if (bounds.left < 0) clampedX -= bounds.left;
+    if (bounds.right > this.width) clampedX -= bounds.right - this.width;
+    if (bounds.top < 0) clampedY -= bounds.top;
+    if (bounds.bottom > this.height) clampedY -= bounds.bottom - this.height;
+    return { x: clampedX, y: clampedY };
+  }
+
+  private canOccupy(entityId: string, entity: Entity, x: number, y: number): boolean {
+    const bounds = this.entityBounds(entity, { x, y });
+    return this.isBoxInsideWorld(bounds) && !this.isBlocked(x, y) && !this.blockingEntityAt(entityId, bounds);
+  }
+
+  private blockingEntityAt(entityId: string, bounds: CollisionBox): Entity | undefined {
+    return Object.values(this.entities).find((other) => {
+      if (other.entityId === entityId || other.components.collision?.blocksMovement === false) return false;
+      const position = other.components.position;
+      if (!position) return false;
+      return boxesIntersect(bounds, this.entityBounds(other, position));
     });
   }
 
-  tryMove(entityId: string, dx: number, dy: number): boolean {
-    const entity = this.entities[entityId];
-    if (!entity) return false;
-    const position = entity.components.position ?? { x: 0, y: 0 };
-    const nextX = position.x + dx;
-    const nextY = position.y + dy;
-    if (!this.isInside(nextX, nextY)) {
-      this.log("已经到达世界边界。");
-      return false;
-    }
-    if (this.isBlocked(nextX, nextY)) {
-      this.log("这里有障碍物，无法通行。");
-      return false;
-    }
-    const other = this.entityAt(nextX, nextY);
-    if (other && other.entityId !== entityId && other.components.collision?.blocksMovement !== false) {
-      this.log(`${other.name} 挡住了去路。`);
-      return false;
-    }
-    entity.components.position = { x: nextX, y: nextY };
-    return true;
+  private isBoxInsideWorld(bounds: CollisionBox): boolean {
+    return bounds.left >= 0 && bounds.top >= 0 && bounds.right <= this.width && bounds.bottom <= this.height;
+  }
+
+  private setPosition(entity: Entity, x: number, y: number): void {
+    entity.components.position = { x: roundCoord(x), y: roundCoord(y) };
   }
 
   addFloatingText(entityId: string, text: string, color: string): void {
@@ -264,6 +372,81 @@ export class World {
       durationMs: 700,
     });
   }
+}
+
+function collisionBox(components: JsonObj, position: { x: number; y: number }, defaultRadius: number): CollisionBox {
+  const collision = components.collision ?? {};
+  const radius = positiveNumber(collision.radius, defaultRadius);
+  const width = positiveNumber(collision.width, radius * 2);
+  const height = positiveNumber(collision.height, radius * 2);
+  const offsetX = finiteNumber(collision.offsetX, 0);
+  const offsetY = finiteNumber(collision.offsetY, 0);
+  const centerX = position.x + offsetX;
+  const centerY = position.y + offsetY;
+  return {
+    left: centerX - width / 2,
+    top: centerY - height / 2,
+    right: centerX + width / 2,
+    bottom: centerY + height / 2,
+    width,
+    height,
+  };
+}
+
+function positiveNumber(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function expandBox(box: CollisionBox, padding: number): CollisionBox {
+  return {
+    left: box.left - padding,
+    top: box.top - padding,
+    right: box.right + padding,
+    bottom: box.bottom + padding,
+    width: box.width + padding * 2,
+    height: box.height + padding * 2,
+  };
+}
+
+function pointInBox(x: number, y: number, box: CollisionBox): boolean {
+  return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+}
+
+function distanceToBoxCenter(x: number, y: number, box: CollisionBox): number {
+  return Math.hypot(x - (box.left + box.right) / 2, y - (box.top + box.bottom) / 2);
+}
+
+function boxesIntersect(a: CollisionBox, b: CollisionBox): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function isDamageTypeAllowed(damageable: JsonObj, damageType: string): boolean {
+  const allowed = stringList(damageable.allowedDamageTypes ?? damageable.vulnerableTo);
+  const immune = stringList(damageable.immuneDamageTypes ?? damageable.immuneTo);
+  if (immune.includes("*") || immune.includes(damageType)) return false;
+  return allowed.length === 0 || allowed.includes("*") || allowed.includes(damageType);
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim().toLowerCase()).filter(Boolean) : [];
+}
+
+function samePosition(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return Math.abs(a.x - b.x) < 0.0001 && Math.abs(a.y - b.y) < 0.0001;
+}
+
+function roundCoord(value: number): number {
+  return Number(value.toFixed(3));
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function normalizeEntityId(value: string): string {

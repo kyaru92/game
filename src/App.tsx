@@ -25,12 +25,12 @@ import {
 interface CanvasLayout {
   originX: number;
   originY: number;
-  cell: number;
+  scale: number;
   width: number;
   height: number;
 }
 
-interface CellPoint {
+interface WorldPoint {
   x: number;
   y: number;
 }
@@ -49,7 +49,7 @@ const COMMAND_SUGGESTIONS: CommandSuggestion[] = [
   { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"max":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
   { label: "give", insert: "give @player poison-cloud-grenade", description: "给予已有 item.jsonc 物品" },
   { label: "apply", insert: "apply poison @dummy", description: "直接对实体施加 effect" },
-  { label: "damage", insert: "damage @dummy 20", description: "造成伤害，非玩家 hp<=0 会消失" },
+  { label: "damage", insert: "damage crate-1 15 impact", description: "造成指定类型伤害；木箱只接受 impact/fire" },
   { label: "heal", insert: "heal @player 100", description: "恢复生命" },
   { label: "remove", insert: "remove slime", description: "移除非玩家实体" },
 ];
@@ -59,6 +59,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
+  const movementKeysRef = useRef(new Set<string>());
   const shouldStickLogRef = useRef(true);
   const selectedTargetRef = useRef<Target>({ kind: "entity", entityId: "dummy" });
   const [selectedTarget, setSelectedTargetState] = useState<Target>(selectedTargetRef.current);
@@ -154,7 +155,11 @@ export default function App() {
 
     let frame = 0;
     let lastUiAt = 0;
+    let lastFrameAt = performance.now();
     const loop = (time: number) => {
+      const deltaSeconds = Math.min(0.05, Math.max(0, (time - lastFrameAt) / 1000));
+      lastFrameAt = time;
+      updatePlayerFreeMovement(runtime, movementKeysRef.current, deltaSeconds);
       runtime.world.tick();
       resizeCanvas(canvas);
       drawWorld(context, runtime, selectedTargetRef.current);
@@ -173,22 +178,10 @@ export default function App() {
       const active = document.activeElement;
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
       const key = event.key.toLowerCase();
-      const moves: Record<string, [number, number]> = {
-        arrowup: [0, -1],
-        w: [0, -1],
-        arrowdown: [0, 1],
-        s: [0, 1],
-        arrowleft: [-1, 0],
-        a: [-1, 0],
-        arrowright: [1, 0],
-        d: [1, 0],
-      };
 
-      if (key in moves) {
+      if (key in MOVEMENT_VECTORS) {
         event.preventDefault();
-        const [dx, dy] = moves[key];
-        runtime.world.tryMove("player", dx, dy);
-        refreshUi();
+        movementKeysRef.current.add(key);
         return;
       }
 
@@ -204,17 +197,29 @@ export default function App() {
       }
     };
 
+    const handleKeyUp = (event: KeyboardEvent) => {
+      movementKeysRef.current.delete(event.key.toLowerCase());
+    };
+
+    const clearMovement = () => movementKeysRef.current.clear();
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cancelCasting, refreshUi, runtime, useInventoryItem]);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", clearMovement);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", clearMovement);
+    };
+  }, [cancelCasting, useInventoryItem]);
 
   const handleCanvasClick = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const cell = eventToCell(canvas, event.clientX, event.clientY, runtime.world);
-    if (!cell) return;
-    const entity = runtime.world.entityAt(cell.x, cell.y);
-    const target: Target = entity ? { kind: "entity", entityId: entity.entityId } : { kind: "position", position: [cell.x, cell.y] };
+    const point = eventToWorldPoint(canvas, event.clientX, event.clientY, runtime.world);
+    if (!point) return;
+    const entity = runtime.world.entityAt(point.x, point.y);
+    const target: Target = entity ? { kind: "entity", entityId: entity.entityId } : { kind: "position", position: [point.x, point.y] };
     setSelectedTarget(target);
     runtime.world.log(`选择目标：${describeTarget(runtime.world, target)}`);
     refreshUi();
@@ -233,10 +238,10 @@ export default function App() {
       <header className="top-bar">
         <div>
           <h1>Canvas ECS MVP</h1>
-          <p>TypeScript + Canvas 格子世界：操控、物品栏、Effect 表现与指令生成。</p>
+          <p>TypeScript + Canvas 自由移动世界：操控、物品栏、Effect 表现与指令生成。</p>
         </div>
         <div className="control-hints">
-          <kbd>WASD</kbd>/<kbd>方向键</kbd> 移动 · <kbd>点击格子</kbd> 选择目标 · <kbd>1-9</kbd> 使用物品 · <kbd>C</kbd> 取消施法
+          <kbd>WASD</kbd>/<kbd>方向键</kbd> 按住移动 · <kbd>点击场景</kbd> 选择目标 · <kbd>1-9</kbd> 使用物品 · <kbd>C</kbd> 取消施法
         </div>
       </header>
 
@@ -245,7 +250,7 @@ export default function App() {
           <canvas ref={canvasRef} className="game-canvas" onClick={handleCanvasClick} />
           <div className="canvas-caption">
             <span>当前目标：<strong>{describeTarget(world, selectedTarget)}</strong></span>
-            <span>障碍物为深色格子；Effect 会以角色光环、头顶色块、倒计时条和浮动数字显示。</span>
+            <span>世界坐标为连续数值；Effect 会以角色光环、头顶色块、倒计时条和浮动数字显示。</span>
           </div>
         </div>
 
@@ -402,18 +407,19 @@ function EntityStatus({ entity, runtime }: { entity: Entity; runtime: GameRuntim
   const finalAttrs = runtime.attributeSystem.finalAttributes(entity);
   const effects = getEffectSummaries(runtime.world, entity);
   const visibleEffects = effects.slice(0, 2);
+  const hasHp = typeof resources.hp === "number";
   const hp = Number(resources.hp ?? 0);
   const maxHp = Number(resources.max_hp ?? (hp || 1));
-  const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const hpPct = hasHp ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
   const position = entity.components.position ?? { x: 0, y: 0 };
 
   return (
     <article className="entity-card">
       <div className="row between">
         <strong>{entity.name}</strong>
-        <span className="muted">({position.x}, {position.y})</span>
+        <span className="muted">({formatNumber(position.x)}, {formatNumber(position.y)})</span>
       </div>
-      <div className="hp-bar"><i style={{ width: `${hpPct}%` }} /><span>{hp}/{maxHp}</span></div>
+      {hasHp ? <div className="hp-bar"><i style={{ width: `${hpPct}%` }} /><span>{hp}/{maxHp}</span></div> : <p className="muted compact">{entity.components.damageable?.destructible === false ? "固定障碍 / 不可损毁" : "无生命资源"}</p>}
       <div className="attrs">
         {Object.keys(finalAttrs).sort().map((key) => {
           const base = Number(baseAttrs[key] ?? 0);
@@ -502,6 +508,44 @@ const ATTRIBUTE_NAMES: Record<string, string> = {
   attack_speed: "攻击速度",
 };
 
+const MOVEMENT_VECTORS: Record<string, WorldPoint> = {
+  arrowup: { x: 0, y: -1 },
+  w: { x: 0, y: -1 },
+  arrowdown: { x: 0, y: 1 },
+  s: { x: 0, y: 1 },
+  arrowleft: { x: -1, y: 0 },
+  a: { x: -1, y: 0 },
+  arrowright: { x: 1, y: 0 },
+  d: { x: 1, y: 0 },
+};
+
+function updatePlayerFreeMovement(runtime: GameRuntime, pressedKeys: Set<string>, deltaSeconds: number): void {
+  if (deltaSeconds <= 0) return;
+  let x = 0;
+  let y = 0;
+  for (const key of pressedKeys) {
+    const vector = MOVEMENT_VECTORS[key];
+    if (!vector) continue;
+    x += vector.x;
+    y += vector.y;
+  }
+  const length = Math.hypot(x, y);
+  if (length <= 0) return;
+
+  const player = runtime.world.entities.player;
+  if (!player) return;
+  const attrs = runtime.attributeSystem.finalAttributes(player);
+  const unitsPerSecond = Math.max(0, Number(attrs.move_speed ?? 100)) / 25;
+  if (unitsPerSecond <= 0) return;
+
+  runtime.world.tryMove(
+    "player",
+    (x / length) * unitsPerSecond * deltaSeconds,
+    (y / length) * unitsPerSecond * deltaSeconds,
+    { logFailure: false },
+  );
+}
+
 function describeEffectMechanics(effect: EffectSummary): string {
   const parts: string[] = [];
   for (const modifier of effect.modifiers) {
@@ -530,25 +574,27 @@ function resizeCanvas(canvas: HTMLCanvasElement): void {
 function getLayout(canvas: HTMLCanvasElement, world: World): CanvasLayout {
   const rect = canvas.getBoundingClientRect();
   const padding = 22;
-  const cell = Math.floor(Math.min((rect.width - padding * 2) / world.gridWidth, (rect.height - padding * 2) / world.gridHeight));
-  const width = cell * world.gridWidth;
-  const height = cell * world.gridHeight;
+  const availableWidth = Math.max(1, rect.width - padding * 2);
+  const availableHeight = Math.max(1, rect.height - padding * 2);
+  const scale = Math.min(availableWidth / world.width, availableHeight / world.height);
+  const width = scale * world.width;
+  const height = scale * world.height;
   return {
     originX: Math.floor((rect.width - width) / 2),
     originY: Math.floor((rect.height - height) / 2),
-    cell,
+    scale,
     width,
     height,
   };
 }
 
-function eventToCell(canvas: HTMLCanvasElement, clientX: number, clientY: number, world: World): CellPoint | undefined {
+function eventToWorldPoint(canvas: HTMLCanvasElement, clientX: number, clientY: number, world: World): WorldPoint | undefined {
   const rect = canvas.getBoundingClientRect();
   const layout = getLayout(canvas, world);
-  const x = Math.floor((clientX - rect.left - layout.originX) / layout.cell);
-  const y = Math.floor((clientY - rect.top - layout.originY) / layout.cell);
+  const x = (clientX - rect.left - layout.originX) / layout.scale;
+  const y = (clientY - rect.top - layout.originY) / layout.scale;
   if (!world.isInside(x, y)) return undefined;
-  return { x, y };
+  return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
 }
 
 function drawWorld(context: CanvasRenderingContext2D, runtime: GameRuntime, selectedTarget: Target): void {
@@ -562,32 +608,31 @@ function drawWorld(context: CanvasRenderingContext2D, runtime: GameRuntime, sele
   const layout = getLayout(canvas, world);
   context.fillStyle = "#08111f";
   context.fillRect(0, 0, rect.width, rect.height);
-  drawGrid(context, world, layout);
+  drawGround(context, layout);
   drawSelection(context, world, layout, selectedTarget);
   drawVisualEvents(context, world, layout);
   for (const entity of Object.values(world.entities)) drawEntity(context, runtime, entity, layout);
   drawLegend(context, rect.width, rect.height);
 }
 
-function drawGrid(context: CanvasRenderingContext2D, world: World, layout: CanvasLayout): void {
+function drawGround(context: CanvasRenderingContext2D, layout: CanvasLayout): void {
   context.save();
   context.translate(layout.originX, layout.originY);
-  for (let y = 0; y < world.gridHeight; y += 1) {
-    for (let x = 0; x < world.gridWidth; x += 1) {
-      const px = x * layout.cell;
-      const py = y * layout.cell;
-      const blocked = world.isBlocked(x, y);
-      context.fillStyle = blocked ? "#172033" : (x + y) % 2 ? "#0f1b2d" : "#111f33";
-      context.fillRect(px + 1, py + 1, layout.cell - 2, layout.cell - 2);
-      if (blocked) {
-        context.strokeStyle = "rgba(148, 163, 184, 0.18)";
-        context.beginPath();
-        context.moveTo(px + 6, py + layout.cell - 6);
-        context.lineTo(px + layout.cell - 6, py + 6);
-        context.stroke();
-      }
-    }
-  }
+  const gradient = context.createLinearGradient(0, 0, layout.width, layout.height);
+  gradient.addColorStop(0, "#0f1b2d");
+  gradient.addColorStop(1, "#111827");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, layout.width, layout.height);
+
+  context.strokeStyle = "rgba(96, 165, 250, 0.14)";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.ellipse(layout.width * 0.32, layout.height * 0.36, layout.width * 0.22, layout.height * 0.16, -0.25, 0, Math.PI * 2);
+  context.stroke();
+  context.beginPath();
+  context.ellipse(layout.width * 0.72, layout.height * 0.62, layout.width * 0.18, layout.height * 0.2, 0.35, 0, Math.PI * 2);
+  context.stroke();
+
   context.strokeStyle = "#30445f";
   context.lineWidth = 2;
   context.strokeRect(0, 0, layout.width, layout.height);
@@ -595,26 +640,57 @@ function drawGrid(context: CanvasRenderingContext2D, world: World, layout: Canva
 }
 
 function drawSelection(context: CanvasRenderingContext2D, world: World, layout: CanvasLayout, selectedTarget: Target): void {
-  let cell: [number, number] | undefined;
-  if (selectedTarget.kind === "position") cell = selectedTarget.position;
-  if (selectedTarget.kind === "entity" && selectedTarget.entityId) {
-    const position = world.entities[selectedTarget.entityId]?.components.position;
-    if (position) cell = [position.x, position.y];
-  }
-  if (!cell) return;
   context.save();
-  context.translate(layout.originX, layout.originY);
   context.strokeStyle = "#fbbf24";
   context.lineWidth = 3;
-  context.strokeRect(cell[0] * layout.cell + 4, cell[1] * layout.cell + 4, layout.cell - 8, layout.cell - 8);
+
+  if (selectedTarget.kind === "entity" && selectedTarget.entityId) {
+    const entity = world.entities[selectedTarget.entityId];
+    const position = entity?.components.position;
+    if (!entity || !position) {
+      context.restore();
+      return;
+    }
+    if (isBoxCollider(entity)) {
+      const bounds = world.entityBounds(entity);
+      const topLeft = worldToCanvas(layout, bounds.left, bounds.top);
+      const bottomRight = worldToCanvas(layout, bounds.right, bounds.bottom);
+      context.strokeRect(topLeft.x - 5, topLeft.y - 5, bottomRight.x - topLeft.x + 10, bottomRight.y - topLeft.y + 10);
+    } else {
+      const center = worldToCanvas(layout, position.x, position.y);
+      context.beginPath();
+      context.arc(center.x, center.y, world.entityRadius(entity) * layout.scale + 8, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.restore();
+    return;
+  }
+
+  if (selectedTarget.kind !== "position" || !selectedTarget.position) {
+    context.restore();
+    return;
+  }
+  const center = worldToCanvas(layout, selectedTarget.position[0], selectedTarget.position[1]);
+  context.beginPath();
+  context.arc(center.x, center.y, 10, 0, Math.PI * 2);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(center.x - 14, center.y);
+  context.lineTo(center.x + 14, center.y);
+  context.moveTo(center.x, center.y - 14);
+  context.lineTo(center.x, center.y + 14);
+  context.stroke();
   context.restore();
 }
 
 function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, entity: Entity, layout: CanvasLayout): void {
   const world = runtime.world;
   const position = entity.components.position ?? { x: 0, y: 0 };
-  const center = cellCenter(layout, position.x, position.y);
-  const radius = Math.max(12, layout.cell * 0.28);
+  const center = worldToCanvas(layout, position.x, position.y);
+  const bounds = world.entityBounds(entity);
+  const bodyWidth = Math.max(24, bounds.width * layout.scale);
+  const bodyHeight = Math.max(24, bounds.height * layout.scale);
+  const visualRadius = Math.max(bodyWidth, bodyHeight) / 2;
   const summaries = getEffectSummaries(world, entity);
   const now = world.nowMs();
 
@@ -625,7 +701,7 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
     context.globalAlpha = 0.35;
     context.lineWidth = 4;
     context.beginPath();
-    context.arc(center.x, center.y, radius + 7 + index * 5 + pulse, 0, Math.PI * 2);
+    context.arc(center.x, center.y, visualRadius + 7 + index * 5 + pulse, 0, Math.PI * 2);
     context.stroke();
   });
   context.globalAlpha = 1;
@@ -636,29 +712,34 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   context.strokeStyle = display.strokeColor ?? (isPlayer ? "#bae6fd" : "#fecaca");
   context.lineWidth = 3;
   context.beginPath();
-  context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+  if (isBoxCollider(entity)) {
+    roundRect(context, center.x - bodyWidth / 2, center.y - bodyHeight / 2, bodyWidth, bodyHeight, 7);
+  } else {
+    context.arc(center.x, center.y, visualRadius, 0, Math.PI * 2);
+  }
   context.fill();
   context.stroke();
 
   context.fillStyle = "#07111f";
-  context.font = `700 ${Math.max(13, layout.cell * 0.22)}px Inter, sans-serif`;
+  context.font = `700 ${Math.max(13, visualRadius * 0.85)}px Inter, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(String(display.glyph ?? (isPlayer ? "P" : "?")), center.x, center.y + 1);
 
-  drawHealthBar(context, entity, center.x, center.y - radius - 14, layout.cell * 0.86);
-  drawCastingRing(context, entity, center, radius + 2);
-  drawEffectChips(context, summaries, center.x, center.y + radius + 10, layout.cell);
+  drawHealthBar(context, entity, center.x, center.y - visualRadius - 14, Math.max(44, bodyWidth));
+  drawCastingRing(context, entity, center, visualRadius + 2);
+  drawEffectChips(context, summaries, center.x, center.y + visualRadius + 10, Math.max(48, visualRadius * 3));
 
   context.fillStyle = "#cbd5e1";
   context.font = "12px Inter, sans-serif";
   context.textBaseline = "top";
-  context.fillText(entity.name, center.x, center.y + radius + 25);
+  context.fillText(entity.name, center.x, center.y + visualRadius + 25);
   context.restore();
 }
 
 function drawHealthBar(context: CanvasRenderingContext2D, entity: Entity, x: number, y: number, width: number): void {
   const resources = entity.components.resources ?? {};
+  if (typeof resources.hp !== "number") return;
   const hp = Number(resources.hp ?? 0);
   const maxHp = Number(resources.max_hp ?? (hp || 1));
   const pct = Math.max(0, Math.min(1, hp / maxHp));
@@ -683,8 +764,8 @@ function drawCastingRing(context: CanvasRenderingContext2D, entity: Entity, cent
   context.stroke();
 }
 
-function drawEffectChips(context: CanvasRenderingContext2D, effects: EffectSummary[], x: number, y: number, cell: number): void {
-  const chipWidth = Math.min(44, cell * 0.85);
+function drawEffectChips(context: CanvasRenderingContext2D, effects: EffectSummary[], x: number, y: number, size: number): void {
+  const chipWidth = Math.min(44, size * 0.85);
   const startX = x - (effects.length * (chipWidth + 4) - 4) / 2;
   effects.slice(0, 5).forEach((effect, index) => {
     const px = startX + index * (chipWidth + 4);
@@ -707,7 +788,7 @@ function drawVisualEvents(context: CanvasRenderingContext2D, world: World, layou
   for (const event of world.visualEvents) {
     const age = now - event.createdAtMs;
     const t = Math.max(0, Math.min(1, age / event.durationMs));
-    const center = cellCenter(layout, event.x, event.y);
+    const center = worldToCanvas(layout, event.x, event.y);
     context.save();
     context.globalAlpha = 1 - t;
     if (event.kind === "text") {
@@ -720,7 +801,7 @@ function drawVisualEvents(context: CanvasRenderingContext2D, world: World, layou
       context.strokeStyle = event.color;
       context.lineWidth = 4 * (1 - t) + 1;
       context.beginPath();
-      context.arc(center.x, center.y, 8 + t * layout.cell * 0.55, 0, Math.PI * 2);
+      context.arc(center.x, center.y, 8 + t * layout.scale * 0.55, 0, Math.PI * 2);
       context.stroke();
     }
     context.restore();
@@ -754,10 +835,15 @@ function drawLegend(context: CanvasRenderingContext2D, width: number, height: nu
   context.restore();
 }
 
-function cellCenter(layout: CanvasLayout, x: number, y: number): { x: number; y: number } {
+function isBoxCollider(entity: Entity): boolean {
+  const collision = entity.components.collision ?? {};
+  return collision.shape === "box" || typeof collision.width === "number" || typeof collision.height === "number";
+}
+
+function worldToCanvas(layout: CanvasLayout, x: number, y: number): { x: number; y: number } {
   return {
-    x: layout.originX + x * layout.cell + layout.cell / 2,
-    y: layout.originY + y * layout.cell + layout.cell / 2,
+    x: layout.originX + x * layout.scale,
+    y: layout.originY + y * layout.scale,
   };
 }
 

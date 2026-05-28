@@ -16,6 +16,7 @@ const ITEM_ICON_FALLBACKS: Record<string, string> = {
   "poison-cloud-grenade": "☣️",
   "blink-device": "⚡",
   "monster-egg": "🥚",
+  "impact-hammer": "🔨",
 };
 
 export function deepClone<T>(value: T): T {
@@ -80,8 +81,12 @@ export function initItemRuntimeState(item: ItemInstance): void {
 
 export function describeTarget(world: World, target: Target): string {
   if (target.kind === "entity" && target.entityId) return world.entityName(target.entityId);
-  if (target.kind === "position" && target.position) return `(${target.position[0]}, ${target.position[1]})`;
+  if (target.kind === "position" && target.position) return `(${formatCoord(target.position[0])}, ${formatCoord(target.position[1])})`;
   return "<none>";
+}
+
+export function formatCoord(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 export function cooldownRemainingMs(item: ItemInstance, world: World): number {

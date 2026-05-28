@@ -58,6 +58,7 @@ export function createEffectSchema(): JSONSchema7 {
       op: { type: "string", enum: ["add", "mul"], description: "周期效果的运算方式：add=每跳增减固定值；mul=每跳按比例调整。" },
       value: { ...numberLike, description: "每次周期触发时应用的数值。" },
       stackType: { type: "string", enum: ["add", "mul", "none"], default: "add", description: "多个周期效果叠加时 value 的合并方式。" },
+      damageType: { type: "string", description: "当 periodicEffect 扣减 hp 时使用的伤害类型；不填则使用 effect id。" },
     },
   };
 
@@ -156,6 +157,25 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
     },
   };
 
+  const damageApplierSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["amount", "damageType"],
+    properties: {
+      amount: { type: "number", minimum: 0, description: "造成的伤害数值。" },
+      damage: { type: "number", minimum: 0, description: "amount 的兼容别名。" },
+      damageType: { type: "string", description: "伤害类型；会与目标 damageable.allowedDamageTypes / immuneDamageTypes 匹配。" },
+      target: {
+        type: "string",
+        enum: ["self", "actor", "user", "activation_target", "@player", "@me", "@who", "@dummy"],
+        default: "activation_target",
+        description: "伤害目标：通常使用 activation_target。",
+      },
+      radius: { type: "number", minimum: 0, description: "可选范围伤害半径，单位为世界坐标。" },
+      areaRadius: { type: "number", minimum: 0, description: "radius 的兼容别名。" },
+    },
+  };
+
   const activationSchema: JSONSchema7 = {
     type: "object",
     additionalProperties: false,
@@ -233,6 +253,10 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
         description: "激活或触发时施加的效果；可填写单个 effect_applier，或数组表示依次尝试施加多个效果。",
         oneOf: [effectApplierSchema, { type: "array", items: effectApplierSchema, description: "多个效果施加器列表。" }],
       },
+      damage_applier: {
+        description: "激活时造成即时伤害；可填写单个 damage_applier，或数组表示多段/多类型伤害。",
+        oneOf: [damageApplierSchema, { type: "array", items: damageApplierSchema, description: "多个伤害施加器列表。" }],
+      },
       activation: { ...activationSchema, description: "物品可主动使用时的激活、充能与冷却配置。" },
       teleporter: {
         type: "object",
@@ -254,8 +278,8 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
           entityId: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]*$", description: "可选：指定生成实体 id；不填时根据 prototype 自动生成。" },
           name: { type: "string", description: "可选：覆盖生成实体显示名称。" },
           color: { type: "string", description: "可选：覆盖生成时的视觉提示颜色。" },
-          allowBlocked: { type: "boolean", default: false, description: "是否允许生成在障碍物格子。" },
-          allowOccupied: { type: "boolean", default: false, description: "是否允许生成在已有实体占据的格子。" },
+          allowBlocked: { type: "boolean", default: false, description: "是否允许生成在不可通行区域。" },
+          allowOccupied: { type: "boolean", default: false, description: "是否允许生成在已有实体附近。" },
           overrides: { type: "object", additionalProperties: true, description: "对 entity prototype.components 的局部覆盖；position 会被激活目标位置覆盖。" },
         },
       },
@@ -309,8 +333,8 @@ export function createEntitySchema(): JSONSchema7 {
         additionalProperties: false,
         required: ["x", "y"],
         properties: {
-          x: { type: "integer", minimum: 0, description: "格子 x 坐标。" },
-          y: { type: "integer", minimum: 0, description: "格子 y 坐标。" },
+          x: { type: "number", minimum: 0, description: "世界 x 坐标，支持小数。" },
+          y: { type: "number", minimum: 0, description: "世界 y 坐标，支持小数。" },
         },
       },
       resources: {
@@ -334,6 +358,30 @@ export function createEntitySchema(): JSONSchema7 {
         additionalProperties: false,
         properties: {
           blocksMovement: { type: "boolean", default: true, description: "是否阻挡移动。" },
+          shape: { type: "string", enum: ["circle", "box"], default: "circle", description: "碰撞体形状；box 使用宽高作为轴对齐碰撞箱。" },
+          radius: { type: "number", minimum: 0, description: "圆形碰撞半径；未配置宽高时也会用于默认碰撞箱尺寸。" },
+          width: { type: "number", minimum: 0, description: "碰撞箱宽度，单位为世界坐标。" },
+          height: { type: "number", minimum: 0, description: "碰撞箱高度，单位为世界坐标。" },
+          offsetX: { type: "number", description: "碰撞体中心相对 position.x 的偏移。" },
+          offsetY: { type: "number", description: "碰撞体中心相对 position.y 的偏移。" },
+        },
+      },
+      damageable: {
+        type: "object",
+        additionalProperties: false,
+        description: "受伤/可破坏配置；可限制只有指定 damageType 能造成伤害。",
+        properties: {
+          destructible: { type: "boolean", default: true, description: "是否可被伤害或破坏；false 常用于固定障碍。" },
+          allowedDamageTypes: { type: "array", items: { type: "string" }, description: "允许造成伤害的类型；空或缺省表示不限。" },
+          immuneDamageTypes: { type: "array", items: { type: "string" }, description: "免疫的伤害类型；可用 * 表示全部免疫。" },
+        },
+      },
+      obstacle: {
+        type: "object",
+        additionalProperties: false,
+        description: "障碍标记；障碍仍是普通 entity，可有血量、碰撞与显示。",
+        properties: {
+          kind: { type: "string", enum: ["destructible", "fixed"], description: "destructible=可破坏障碍；fixed=固定不可损毁障碍。" },
         },
       },
       faction: {

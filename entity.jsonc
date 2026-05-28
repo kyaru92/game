@@ -22,6 +22,8 @@
             "inventory": [],
             "collision": {
                 "blocksMovement": true,
+                "shape": "circle",
+                "radius": 0.35,
             },
         },
     },
@@ -48,6 +50,8 @@
             },
             "collision": {
                 "blocksMovement": true,
+                "shape": "circle",
+                "radius": 0.4,
             },
         },
     },
@@ -70,6 +74,59 @@
             },
             "collision": {
                 "blocksMovement": true,
+                "shape": "circle",
+                "radius": 0.35,
+            },
+        },
+    },
+
+    "wooden-crate": {
+        "components": {
+            "display": {
+                "name": "木箱",
+                "glyph": "□",
+                "color": "#a16207",
+                "strokeColor": "#facc15",
+            },
+            "resources": {
+                "hp": 30,
+                "max_hp": 30,
+            },
+            "collision": {
+                "blocksMovement": true,
+                "shape": "box",
+                "width": 1.0,
+                "height": 1.0,
+            },
+            "damageable": {
+                "destructible": true,
+                "allowedDamageTypes": ["impact", "fire"],
+            },
+            "obstacle": {
+                "kind": "destructible",
+            },
+        },
+    },
+
+    "stone-block": {
+        "components": {
+            "display": {
+                "name": "固定石障",
+                "glyph": "#",
+                "color": "#475569",
+                "strokeColor": "#94a3b8",
+            },
+            "collision": {
+                "blocksMovement": true,
+                "shape": "box",
+                "width": 1.2,
+                "height": 1.2,
+            },
+            "damageable": {
+                "destructible": false,
+            },
+            "obstacle": {
+                "kind": "fixed",
             },
         },
     },

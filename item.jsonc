@@ -139,7 +139,7 @@
         "components": {
             "display": {
                 "name": "毒雾手雷",
-                "description": "对位置目标投掷，在半径 2 格范围内给所有实体施加中毒。",
+                "description": "对位置目标投掷，在半径 2 个世界单位范围内给所有实体施加中毒。",
                 "icon": "/assets/items/poison-cloud-grenade.png",
             },
             "economy": {
@@ -196,11 +196,40 @@
         },
     },
 
+    "impact-hammer": {
+        "components": {
+            "display": {
+                "name": "冲击锤",
+                "description": "对实体目标造成 impact 伤害，可破坏木箱，对固定石障无效。",
+                "icon": "/assets/items/impact-hammer.png",
+            },
+            "economy": {
+                "baseValue": 10,
+            },
+            "targeting": {
+                "mode": "entity",
+                "range": 2.0,
+                "default": "crate-1",
+            },
+            "damage_applier": {
+                "amount": 15,
+                "damageType": "impact",
+                "target": "activation_target",
+            },
+            "activation": {
+                "max": 999,
+                "cooldownMs": 350,
+                "castDurationMs": 100,
+                "consumeWhenDepleted": false,
+            },
+        },
+    },
+
     "monster-egg": {
         "components": {
             "display": {
                 "name": "怪物蛋",
-                "description": "扔到位置目标，在该格创建一只小怪物。",
+                "description": "扔到位置目标，在该位置创建一只小怪物。",
                 "icon": "/assets/items/monster-egg.png",
             },
             "economy": {

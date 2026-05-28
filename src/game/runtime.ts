@@ -1,5 +1,5 @@
 import { parse } from "jsonc-parser";
-import { ActivationSystem, AttributeSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, TeleportSystem } from "./systems";
+import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, TeleportSystem } from "./systems";
 import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
@@ -12,19 +12,21 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
 
   world.createEntity("player", { entityId: "player" });
   world.createEntity("training-dummy", { entityId: "dummy" });
+  createInitialObstacles(world);
 
   const activationSystem = new ActivationSystem(world);
   new EffectApplierSystem(world);
+  new DamageApplierSystem(world);
   new TeleportSystem(world);
   new EntitySpawnerSystem(world);
   const effectSystem = new EffectSystem(world);
   const attributeSystem = new AttributeSystem(world);
   world.systems.push(activationSystem, effectSystem);
 
-  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg"]) {
+  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg", "impact-hammer"]) {
     if (world.itemPrototypes[protoId]) world.give("player", protoId);
   }
-  world.log("Canvas ECS MVP 已启动：WASD/方向键移动，点击格子选择目标，数字键 1-9 使用物品；输入 help 查看指令。");
+  world.log("Canvas ECS MVP 已启动：按住 WASD/方向键自由移动，点击场景选择目标，数字键 1-9 使用物品；damage crate-1 15 impact 可破坏木箱。");
 
   return { world, activationSystem, effectSystem, attributeSystem };
 }
@@ -50,6 +52,17 @@ export function getEffectSummaries(world: World, entity: Entity): EffectSummary[
       behavior: String(runtime.behavior ?? "none"),
     };
   });
+}
+
+function createInitialObstacles(world: World): void {
+  if (world.entityPrototypes["wooden-crate"]) {
+    world.createEntity("wooden-crate", { entityId: "crate-1", position: { x: 4.5, y: 2.7 } });
+    world.createEntity("wooden-crate", { entityId: "crate-2", position: { x: 6.2, y: 7.6 } });
+  }
+  if (world.entityPrototypes["stone-block"]) {
+    world.createEntity("stone-block", { entityId: "stone-1", position: { x: 9.2, y: 4.8 } });
+    world.createEntity("stone-block", { entityId: "stone-2", position: { x: 12.2, y: 8.7 } });
+  }
 }
 
 function parseJsonc(text: string, label: string): JsonObj {
