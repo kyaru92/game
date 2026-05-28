@@ -30,6 +30,7 @@ export class World {
   readonly selectionRadius = 0.45;
   readonly effects: EffectDefinitions;
   readonly itemPrototypes: ItemDefinitions;
+  readonly customItemPrototypes: ItemDefinitions = {};
   readonly entityPrototypes: EntityDefinitions;
   readonly bus = new EventBus();
   readonly entities: Record<string, Entity> = {};
@@ -179,8 +180,12 @@ export class World {
     return Object.values(this.entities).find((entity) => entity.name.toLowerCase() === lower || String(entity.components.display?.name ?? "").toLowerCase() === lower)?.entityId;
   }
 
+  itemPrototype(protoId: string): ItemDefinitions[string] | undefined {
+    return this.itemPrototypes[protoId] ?? this.customItemPrototypes[protoId];
+  }
+
   createItem(protoId: string): ItemInstance {
-    const proto = this.itemPrototypes[protoId];
+    const proto = this.itemPrototype(protoId);
     if (!proto) throw new Error(`未知物品原型：${protoId}`);
     const item = this.createCustomItem(protoId, deepClone(proto.components ?? {}));
     return item;

@@ -1,6 +1,8 @@
 import { parse } from "jsonc-parser";
+import { applyItemPatches, getCommandSuggestions, parseGiveCommandLine } from "./commandLanguage";
+import type { CommandSuggestion } from "./commandLanguage";
 import type { GameRuntime, JsonObj } from "./types";
-import { formatCoord } from "./utils";
+import { deepClone, formatCoord } from "./utils";
 
 const COMMAND_HELP = [
   "指令：",
@@ -11,7 +13,9 @@ const COMMAND_HELP = [
   "    例：component slime ai {\"state\":\"patrol\",\"range\":5}",
   "  item <owner> <protoId> <components-json>          # 创建自定义 component 物品并放入背包",
   "    例：item @player debug-potion {\"display\":{\"name\":\"调试药水\"},\"targeting\":{\"mode\":\"self\"},\"activation\":{\"max\":3},\"effect_applier\":[{\"kind\":\"regeneration\",\"target\":\"self\"}]}",
-  "  give <entity> <itemProtoId>",
+  "  give <entity> <itemProtoId>[component:field=value;!component]",
+  "    例：give @player poison-cloud-grenade[targeting:range=60;activation:max=5,cooldownMs=300;!economy]",
+  "    例：give @player debug-potion[display:name=调试药水;targeting:mode=self;activation:max=3]  # 注册运行时自定义 prototype 并给予实例",
   "  reload <entity> [slotIndex]                       # 装填指定槽位枪械；slotIndex 从 1 开始",
   "  apply <effectId> <entity>",
   "  damage <entity> <amount> [damageType] / heal <entity> <amount>",
@@ -56,7 +60,7 @@ export function executeCommand(runtime: GameRuntime, line: string): void {
         createCustomItem(runtime, raw, tokens);
         return;
       case "give":
-        giveItem(runtime, tokens);
+        giveItem(runtime, raw);
         return;
       case "reload":
         reloadFirearm(runtime, tokens);
@@ -141,12 +145,38 @@ function createCustomItem(runtime: GameRuntime, raw: string, tokens: string[]): 
   world.giveCustomItem(ownerId, protoId, components as JsonObj);
 }
 
-function giveItem(runtime: GameRuntime, tokens: string[]): void {
+function giveItem(runtime: GameRuntime, raw: string): void {
   const world = runtime.world;
-  const entityId = world.findEntity(tokens[1] ?? "");
-  const protoId = tokens[2];
-  if (!entityId || !protoId) throw new Error("用法：give <entity> <itemProtoId>");
-  world.give(entityId, protoId);
+  const parsed = parseGiveCommandLine(raw);
+  const entityId = world.findEntity(parsed.entitySelector);
+  if (!entityId) throw new Error(`找不到实体：${parsed.entitySelector}`);
+
+  if (!parsed.hasPatches) {
+    world.give(entityId, parsed.protoId);
+    return;
+  }
+
+  const existingPrototype = world.itemPrototype(parsed.protoId);
+  const baseComponents = existingPrototype?.components ? deepClone(existingPrototype.components) : {};
+  const components = applyItemPatches(baseComponents, parsed.patches);
+  preventVariantAutoStack(components);
+  if (!existingPrototype) world.customItemPrototypes[parsed.protoId] = { components: deepClone(components) };
+  world.giveCustomItem(entityId, parsed.protoId, components);
+}
+
+function preventVariantAutoStack(components: JsonObj): void {
+  const stacking = components.stacking;
+  if (stacking && typeof stacking === "object" && !Array.isArray(stacking)) {
+    stacking.max = 1;
+    stacking.quantity = 1;
+    delete stacking.initialQuantity;
+    return;
+  }
+  components.stacking = { max: 1, quantity: 1 };
+}
+
+export function getCommandCompletions(runtime: GameRuntime, line: string, cursor = line.length): CommandSuggestion[] {
+  return getCommandSuggestions(runtime, line, cursor);
 }
 
 function reloadFirearm(runtime: GameRuntime, tokens: string[]): void {

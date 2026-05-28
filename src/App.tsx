@@ -9,6 +9,7 @@ import {
   describeTarget,
   executeCommand,
   displayItemName,
+  getCommandCompletions,
   effectColor,
   formatMs,
   getEffectSummaries,
@@ -41,21 +42,9 @@ interface CommandSuggestion {
   label: string;
   insert: string;
   description: string;
+  replaceFrom?: number;
+  replaceTo?: number;
 }
-
-const COMMAND_SUGGESTIONS: CommandSuggestion[] = [
-  { label: "help", insert: "help", description: "显示所有指令和示例" },
-  { label: "entities", insert: "entities", description: "列出当前世界里的实体" },
-  { label: "spawn", insert: 'spawn hatched-monster slime_1 6 6 {"resources":{"hp":50,"max_hp":50}}', description: "按 entity prototype 生成实体，可附加 overrides" },
-  { label: "component", insert: 'component slime ai {"state":"patrol","range":5}', description: "给实体写入/覆盖自定义 component" },
-  { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"max":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
-  { label: "give", insert: "give @player poison-cloud-grenade", description: "给予已有 item.jsonc 物品" },
-  { label: "reload", insert: "reload @player 9", description: "装填指定物品槽位的枪械" },
-  { label: "apply", insert: "apply poison @dummy", description: "直接对实体施加 effect" },
-  { label: "damage", insert: "damage crate-1 15 impact", description: "造成指定类型伤害；木箱只接受 impact/fire" },
-  { label: "heal", insert: "heal @player 100", description: "恢复生命" },
-  { label: "remove", insert: "remove slime", description: "移除非玩家实体" },
-];
 
 export default function App() {
   const runtime = useMemo<GameRuntime>(() => createGameRuntime(effectText, itemText, entityText), []);
@@ -68,6 +57,7 @@ export default function App() {
   const cursorPositionRef = useRef<[number, number] | undefined>(undefined);
   const [selectedTarget, setSelectedTargetState] = useState<Target>(selectedTargetRef.current);
   const [commandLine, setCommandLine] = useState("");
+  const [commandCursor, setCommandCursor] = useState(0);
   const [commandFocused, setCommandFocused] = useState(false);
   const [sideTab, setSideTab] = useState<"status" | "inventory" | "supply">("status");
   const [backpackOpen, setBackpackOpen] = useState(false);
@@ -81,17 +71,22 @@ export default function App() {
 
   const refreshUi = useCallback(() => forceRender((value) => value + 1), []);
 
-  const filteredSuggestions = useMemo(() => filterCommandSuggestions(commandLine), [commandLine]);
+  const filteredSuggestions = useMemo(() => getCommandCompletions(runtime, commandLine, commandCursor), [commandCursor, commandLine, runtime]);
   const showSuggestions = commandFocused && filteredSuggestions.length > 0;
 
   const applyCommandSuggestion = useCallback((suggestion: CommandSuggestion) => {
-    setCommandLine(suggestion.insert);
+    const replaceFrom = suggestion.replaceFrom ?? 0;
+    const replaceTo = suggestion.replaceTo ?? commandLine.length;
+    const next = `${commandLine.slice(0, replaceFrom)}${suggestion.insert}${commandLine.slice(replaceTo)}`;
+    const cursor = replaceFrom + suggestion.insert.length;
+    setCommandLine(next);
+    setCommandCursor(cursor);
     setSuggestionIndex(0);
     requestAnimationFrame(() => {
       commandInputRef.current?.focus();
-      commandInputRef.current?.setSelectionRange(suggestion.insert.length, suggestion.insert.length);
+      commandInputRef.current?.setSelectionRange(cursor, cursor);
     });
-  }, []);
+  }, [commandLine]);
 
   const handleCommandKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (!showSuggestions) return;
@@ -189,6 +184,7 @@ export default function App() {
     executeCommand(runtime, line);
     runtime.world.tick();
     setCommandLine("");
+    setCommandCursor(0);
     refreshUi();
   }, [commandLine, refreshUi, runtime]);
 
@@ -449,18 +445,29 @@ export default function App() {
             <input
               ref={commandInputRef}
               value={commandLine}
-              onFocus={() => setCommandFocused(true)}
+              onFocus={(event) => {
+                setCommandFocused(true);
+                setCommandCursor(event.currentTarget.selectionStart ?? commandLine.length);
+              }}
               onBlur={() => window.setTimeout(() => setCommandFocused(false), 120)}
               onKeyDown={handleCommandKeyDown}
-              onChange={(event) => setCommandLine(event.target.value)}
-              placeholder='help / spawn hatched-monster slime_1 6 6 {"resources":{"hp":50,"max_hp":50}} / item @player debug {"display":{"name":"调试物品"}}'
+              onKeyUp={(event) => setCommandCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
+              onChange={(event) => {
+                setCommandLine(event.target.value);
+                setCommandCursor(event.target.selectionStart ?? event.target.value.length);
+              }}
+              onSelect={(event) => {
+                setCommandCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+                setSuggestionIndex(0);
+              }}
+              placeholder='help / give @player poison-cloud-grenade[targeting:range=60;activation:max=5;!economy]'
             />
             {showSuggestions && (
               <div className="command-suggestions">
                 {filteredSuggestions.map((suggestion, index) => (
                   <button
                     type="button"
-                    key={suggestion.label}
+                    key={`${suggestion.label}-${suggestion.replaceFrom ?? 0}-${suggestion.insert}`}
                     className={index === suggestionIndex ? "active" : ""}
                     onMouseDown={(event) => {
                       event.preventDefault();
@@ -491,17 +498,6 @@ export default function App() {
       </section>
     </main>
   );
-}
-
-function filterCommandSuggestions(input: string): CommandSuggestion[] {
-  const text = input.trim().toLowerCase();
-  if (!text) return COMMAND_SUGGESTIONS.slice(0, 6);
-  return COMMAND_SUGGESTIONS
-    .filter((suggestion) => {
-      const haystack = `${suggestion.label} ${suggestion.insert} ${suggestion.description}`.toLowerCase();
-      return haystack.includes(text) || suggestion.label.startsWith(text.split(/\s+/)[0] ?? "");
-    })
-    .slice(0, 6);
 }
 
 function LogEntry({ message }: { message: string }) {
