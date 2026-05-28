@@ -3,6 +3,8 @@ import type { Entity, JsonObj } from "../types";
 import type { World } from "../world";
 import { stackedValue } from "../utils";
 
+type PeriodicStackType = Parameters<typeof stackedValue>[2];
+
 export function makeLayer(definition: JsonObj, durationMs: number, now: number): JsonObj {
   const interval = definition.periodicEffect ? Number(definition.periodicEffect.intervalMs ?? 1000) : undefined;
   return {
@@ -36,7 +38,7 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Js
   const attr = String(periodic.attribute);
   const op = String(periodic.op ?? "add");
   const value = Number(periodic.value ?? 0);
-  const stackType = String(periodic.stackType ?? "add");
+  const stackType = periodicStackType(periodic.stackType);
   const amount = stackedValue(value, stacks, stackType);
   const effectName = String(definition.name ?? definition.id ?? "effect");
 
@@ -67,4 +69,8 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Js
   const after = op === "mul" ? before * (1 + amount) : before + amount;
   attrs[attr] = Number(after.toFixed(2));
   world.log(`${entity.name} 的 ${attr} 周期变化 ${before} -> ${attrs[attr]}`);
+}
+
+function periodicStackType(value: unknown): PeriodicStackType {
+  return value === "none" || value === "mul" ? value : "add";
 }

@@ -23,6 +23,8 @@ import type {
   projectileLauncherSchema,
   projectileRuntimeSchema,
 } from "./componentSchemas";
+import type { AttributeId } from "./componentSchemas";
+export type { AttributeId } from "./componentSchemas";
 
 export type SchemaTypeOptions = {
   keepDefaultedPropertiesOptional: true;
@@ -36,6 +38,8 @@ export type Target =
   | { kind: "entity"; entityId: string; position?: never }
   | { kind: "position"; position: [number, number]; entityId?: never }
   | { kind: "none"; entityId?: never; position?: never };
+
+export type AttributeMap = Partial<Record<AttributeId, number>> & Record<string, number | undefined>;
 
 export type EffectModifier = FromSchema<typeof effectModifierSchema, SchemaTypeOptions>;
 export type PeriodicEffect = FromSchema<typeof periodicEffectSchema, SchemaTypeOptions>;

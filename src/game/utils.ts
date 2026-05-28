@@ -1,3 +1,4 @@
+import type { ActiveEffectRuntime, EffectModifier } from "../domain/componentTypes";
 import type { EffectSummary, ItemInstance, JsonObj, Target } from "./types";
 import type { World } from "./world";
 
@@ -132,12 +133,12 @@ export function formatDuration(durationMs: number): string {
   return durationMs < 0 ? "永久" : formatMs(durationMs);
 }
 
-export function effectStackCount(active: JsonObj): number {
-  if (active.behavior === "independent") return (active.layers ?? []).length;
-  return Number(active.stacks ?? 1);
+export function effectStackCount(active: ActiveEffectRuntime): number {
+  if (active.behavior === "independent") return active.layers?.length ?? 0;
+  return active.stacks ?? 1;
 }
 
-export function stackedValue(value: number, stacks: number, stackType: string): number {
+export function stackedValue(value: number, stacks: number, stackType: EffectModifier["stackType"] = "none"): number {
   if (stackType === "add") return value * stacks;
   if (stackType === "mul") return (1 + value) ** stacks - 1;
   return value;
