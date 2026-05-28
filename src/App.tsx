@@ -644,7 +644,8 @@ function InventoryRow({ index, item, world, onPrimary, onAssignHotbar }: { index
   const cooldown = cooldownRemainingMs(item, world);
   const isEquipment = isEquipmentItem(item);
   const charges = activation ? (activation.consumeCharge === false ? "∞" : `${activation.charges}/${activation.maxCharges}`) : "-";
-  const stackText = item.components.stacking?.max > 1 ? `数量 ${item.components.stacking.quantity}/${item.components.stacking.max}` : undefined;
+  const stacking = item.components.stacking;
+  const stackText = stacking && Number(stacking.max ?? 1) > 1 ? `数量 ${stacking.quantity ?? 1}/${stacking.max}` : undefined;
   const disabled = !isEquipment && (!activation || cooldown > 0 || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0));
   const targetMode = item.components.targeting?.mode ?? (isEquipment ? "装备" : "self");
   const canHotbar = isEquipment || Boolean(activation);
@@ -676,14 +677,18 @@ function InventoryRow({ index, item, world, onPrimary, onAssignHotbar }: { index
 
 function interpolateItemText(text: string, item: ItemInstance): string {
   const vars: Record<string, string | number> = {
-    modifyAttr: item.components.modifyAttr ?? item.components.effect_applier?.[0]?.modifyAttr ?? "hp",
-    modifyValueRate: item.components.modifyValueRate ?? item.components.effect_applier?.[0]?.modifyValueRate ?? inferPeriodicValue(item),
+    modifyAttr: asTextVar(item.components.modifyAttr) ?? "hp",
+    modifyValueRate: asTextVar(item.components.modifyValueRate) ?? inferPeriodicValue(item),
   };
 
   return text.replace(/\{\$attribute\[([^\]]+)\]\.name\}/g, (_match, rawKey: string) => {
     const key = rawKey.startsWith("$") ? String(vars[rawKey.slice(1)] ?? rawKey) : rawKey;
     return ATTRIBUTE_NAMES[key] ?? key;
   }).replace(/\{\$([A-Za-z0-9_]+)\}/g, (_match, key: string) => String(vars[key] ?? ""));
+}
+
+function asTextVar(value: unknown): string | number | undefined {
+  return typeof value === "string" || typeof value === "number" ? value : undefined;
 }
 
 function inferPeriodicValue(item: ItemInstance): number | string {
@@ -900,10 +905,10 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   });
   context.globalAlpha = 1;
 
-  const display = entity.components.display ?? {};
+  const display = entity.components.display;
   const isPlayer = entity.entityId === "player";
-  context.fillStyle = display.color ?? (isPlayer ? "#38bdf8" : "#f87171");
-  context.strokeStyle = display.strokeColor ?? (isPlayer ? "#bae6fd" : "#fecaca");
+  context.fillStyle = display?.color ?? (isPlayer ? "#38bdf8" : "#f87171");
+  context.strokeStyle = display?.strokeColor ?? (isPlayer ? "#bae6fd" : "#fecaca");
   context.lineWidth = 3;
   context.beginPath();
   if (isBoxCollider(entity)) {
@@ -918,7 +923,7 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   context.font = `700 ${Math.max(13, visualRadius * 0.85)}px Inter, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(String(display.glyph ?? (isPlayer ? "P" : "?")), center.x, center.y + 1);
+  context.fillText(String(display?.glyph ?? (isPlayer ? "P" : "?")), center.x, center.y + 1);
 
   drawHealthBar(context, entity, center.x, center.y - visualRadius - 14, Math.max(44, bodyWidth));
   drawCastingRing(context, entity, center, visualRadius + 2);

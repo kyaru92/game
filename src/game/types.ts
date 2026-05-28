@@ -1,10 +1,14 @@
-export type JsonObj = Record<string, any>;
+import type {
+  ActiveEffectRuntime,
+  EffectModifier,
+  EntityRuntimeComponents,
+  ItemRuntimeComponents,
+  PeriodicEffect,
+  Target,
+} from "../domain/componentTypes";
 
-export interface Target {
-  kind: "entity" | "position" | "none";
-  entityId?: string;
-  position?: [number, number];
-}
+export type JsonObj = Record<string, any>;
+export type { Target };
 
 export interface TargetContext {
   actorId?: string;
@@ -16,13 +20,13 @@ export interface TargetContext {
 export interface ItemInstance {
   instanceId: string;
   protoId: string;
-  components: JsonObj;
+  components: ItemRuntimeComponents;
 }
 
 export interface Entity {
   entityId: string;
   name: string;
-  components: JsonObj;
+  components: EntityRuntimeComponents;
 }
 
 export interface EventData {
@@ -51,10 +55,12 @@ export interface EffectSummary {
   durationMs: number;
   progress: number;
   color: string;
-  modifiers: JsonObj[];
-  periodicEffect?: JsonObj;
+  modifiers: EffectModifier[];
+  periodicEffect?: PeriodicEffect;
   behavior: string;
 }
+
+export type { ActiveEffectRuntime };
 
 export interface GameRuntime {
   world: import("./world").World;

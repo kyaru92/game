@@ -1,13 +1,14 @@
 import { parse } from "jsonc-parser";
 import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, FirearmSystem, ProjectileLauncherSystem, ProjectileSystem, TeleportSystem } from "./systems";
+import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
 import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
 
 export function createGameRuntime(effectText: string, itemText: string, entityText: string): GameRuntime {
-  const effects = parseJsonc(effectText, "effect.jsonc");
-  const items = parseJsonc(itemText, "item.jsonc");
-  const entities = parseJsonc(entityText, "entity.jsonc");
+  const effects = parseJsonc<EffectDefinitions>(effectText, "effect.jsonc");
+  const items = parseJsonc<ItemDefinitions>(itemText, "item.jsonc");
+  const entities = parseJsonc<EntityDefinitions>(entityText, "entity.jsonc");
   const world = new World(effects, items, entities);
 
   world.createEntity("player", { entityId: "player" });
@@ -74,9 +75,9 @@ function createInitialObstacles(world: World): void {
   }
 }
 
-function parseJsonc(text: string, label: string): JsonObj {
+function parseJsonc<T>(text: string, label: string): T {
   const errors: any[] = [];
   const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length) throw new Error(`${label} 解析失败：${errors.map((error) => error.error).join(", ")}`);
-  return value ?? {};
+  return (value ?? {}) as T;
 }

@@ -1,4 +1,5 @@
 import { EventBus } from "./eventBus";
+import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
 import type { Entity, ItemInstance, JsonObj, VisualEvent } from "./types";
 import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState, isEquipmentItem } from "./utils";
 
@@ -27,9 +28,9 @@ export class World {
   readonly height = 12;
   readonly defaultEntityRadius = 0.35;
   readonly selectionRadius = 0.45;
-  readonly effects: JsonObj;
-  readonly itemPrototypes: JsonObj;
-  readonly entityPrototypes: JsonObj;
+  readonly effects: EffectDefinitions;
+  readonly itemPrototypes: ItemDefinitions;
+  readonly entityPrototypes: EntityDefinitions;
   readonly bus = new EventBus();
   readonly entities: Record<string, Entity> = {};
   readonly items: Record<string, ItemInstance> = {};
@@ -41,7 +42,7 @@ export class World {
   private nextVisualNo = 1;
   private nextEntityNo = 1;
 
-  constructor(effects: JsonObj, itemPrototypes: JsonObj, entityPrototypes: JsonObj = {}) {
+  constructor(effects: EffectDefinitions, itemPrototypes: ItemDefinitions, entityPrototypes: EntityDefinitions = {}) {
     this.effects = effects;
     this.itemPrototypes = itemPrototypes;
     this.entityPrototypes = entityPrototypes;
@@ -258,6 +259,8 @@ export class World {
       const space = stackMax(existing) - existingQuantity;
       if (space <= 0) continue;
       const moved = Math.min(space, remaining);
+      existing.components.stacking ??= {};
+      item.components.stacking ??= {};
       existing.components.stacking.quantity = existingQuantity + moved;
       remaining -= moved;
       item.components.stacking.quantity = remaining;

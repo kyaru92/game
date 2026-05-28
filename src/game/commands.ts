@@ -111,8 +111,9 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
     delete world.entities[entity.entityId];
     throw new Error("生成位置被占用或碰撞箱超出地图");
   }
+  const position = entity.components.position ?? { x, y };
   world.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
-  world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${formatCoord(entity.components.position.x)},${formatCoord(entity.components.position.y)})。`);
+  world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${formatCoord(position.x)},${formatCoord(position.y)})。`);
 }
 
 function setComponent(runtime: GameRuntime, raw: string, tokens: string[]): void {

@@ -329,6 +329,7 @@ export class FirearmSystem {
 
   private startReload(actorId: string, item: ItemInstance, announce: boolean): boolean {
     const firearm = item.components.firearm;
+    if (!firearm) return false;
     const loaded = magazineRounds(firearm).length;
     const capacity = magazineSize(firearm);
     if (loaded >= capacity) {
@@ -353,6 +354,7 @@ export class FirearmSystem {
 
   private finishReload(item: ItemInstance): void {
     const firearm = item.components.firearm;
+    if (!firearm) return;
     const ownerId = String(firearm._reloadOwnerId ?? "player");
     const capacity = magazineSize(firearm);
     const needed = Math.max(0, capacity - magazineRounds(firearm).length);
@@ -435,6 +437,7 @@ export class ProjectileSystem {
 
   private updateProjectile(entity: Entity, now: number): void {
     const projectile = entity.components.projectile;
+    if (!projectile) return;
     const position = entity.components.position ?? { x: 0, y: 0 };
     const lastUpdateMs = Number(projectile.lastUpdateMs ?? now);
     projectile.lastUpdateMs = now;
@@ -472,6 +475,7 @@ export class ProjectileSystem {
 
   private impact(projectileEntity: Entity, hitEntity: Entity | undefined): void {
     const projectile = projectileEntity.components.projectile;
+    if (!projectile) return;
     const position = projectileEntity.components.position ?? { x: 0, y: 0 };
     const impactTarget: Target = hitEntity
       ? { kind: "entity", entityId: hitEntity.entityId }
@@ -692,7 +696,7 @@ export class EffectSystem {
     this.runPeriodic(entity, definition, active, now, Number(active.stacks ?? 1));
     const expiresAt = active.expiresAtMs;
     if (expiresAt !== null && expiresAt !== undefined && now >= Number(expiresAt)) {
-      delete entity.components.active_effects[effectId];
+      delete entity.components.active_effects?.[effectId];
       this.world.log(`${entity.name} 的 ${definition.name ?? effectId} 已过期。`);
     }
   }
@@ -712,7 +716,7 @@ export class EffectSystem {
       active.layers = alive;
       active.stacks = alive.length;
     } else {
-      delete entity.components.active_effects[effectId];
+      delete entity.components.active_effects?.[effectId];
     }
   }
 
@@ -983,7 +987,8 @@ function acceptsAmmo(firearm: JsonObj, ammo: JsonObj): boolean {
 }
 
 function makeAmmoRound(item: ItemInstance): JsonObj {
-  const ammo = item.components.ammo ?? {};
+  const ammo = item.components.ammo;
+  if (!ammo) return { ammoProtoId: item.protoId, displayName: displayItemName(item), ammoType: item.protoId, projectile: {} };
   return {
     ammoProtoId: item.protoId,
     displayName: displayItemName(item),
@@ -1019,6 +1024,7 @@ function consumeItemQuantity(world: World, ownerId: string, item: ItemInstance, 
 
 function findProjectileHit(world: World, projectileEntity: Entity, from: { x: number; y: number }, to: { x: number; y: number }): { entity: Entity; position: { x: number; y: number } } | undefined {
   const projectile = projectileEntity.components.projectile;
+  if (!projectile) return undefined;
   const ignored = new Set<string>([projectileEntity.entityId, String(projectile.sourceEntityId ?? ""), ...(projectile.hitEntityIds ?? [])]);
   let best: { entity: Entity; position: { x: number; y: number }; distanceAlong: number } | undefined;
   for (const entity of Object.values(world.entities)) {
