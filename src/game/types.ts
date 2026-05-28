@@ -66,6 +66,7 @@ export interface GameRuntime {
   world: import("./world").World;
   activationSystem: import("./systems").ActivationSystem;
   firearmSystem: import("./systems").FirearmSystem;
+  lootSystem: import("./systems").LootSystem;
   effectSystem: import("./systems").EffectSystem;
   attributeSystem: import("./systems").AttributeSystem;
 }

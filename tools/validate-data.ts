@@ -113,6 +113,7 @@ function schemaDiagnostic(file: string, error: ErrorObject): Diagnostic {
 
 function validateCrossReferences(data: GameData, diagnostics: Diagnostic[]): void {
   const effectIds = new Set(Object.keys(data.effects));
+  const itemIds = new Set(Object.keys(data.items));
   const entityIds = new Set(Object.keys(data.entities));
   const attributeIds = new Set<string>(ATTRIBUTE_IDS);
 
@@ -295,6 +296,49 @@ function validateCrossReferences(data: GameData, diagnostics: Diagnostic[]): voi
         });
       }
     }
+    const loot = components.loot;
+    if (loot) {
+      const containerPrototype = loot.containerPrototype ?? "loot-crate";
+      if (!entityIds.has(containerPrototype)) {
+        diagnostics.push({
+          severity: "error",
+          file: DATA_FILES.entities,
+          pointer: `/${entityId}/components/loot/containerPrototype`,
+          message: `loot.containerPrototype 引用了不存在的 entity prototype："${containerPrototype}"。`,
+        });
+      }
+      for (const [index, entry] of (loot.entries ?? []).entries()) {
+        if (!itemIds.has(entry.item)) {
+          diagnostics.push({
+            severity: "error",
+            file: DATA_FILES.entities,
+            pointer: `/${entityId}/components/loot/entries/${index}/item`,
+            message: `loot.entries 引用了不存在的 item prototype："${entry.item}"。`,
+          });
+        }
+        validateLootQuantity(entityId, `loot/entries/${index}`, entry.quantity, diagnostics);
+      }
+      for (const [index, entry] of (loot.guarantee?.pool ?? []).entries()) {
+        if (!itemIds.has(entry.item)) {
+          diagnostics.push({
+            severity: "error",
+            file: DATA_FILES.entities,
+            pointer: `/${entityId}/components/loot/guarantee/pool/${index}/item`,
+            message: `loot.guarantee.pool 引用了不存在的 item prototype："${entry.item}"。`,
+          });
+        }
+        validateLootQuantity(entityId, `loot/guarantee/pool/${index}`, entry.quantity, diagnostics);
+      }
+      if ((loot.entries?.length ?? 0) === 0 && (loot.guarantee?.pool?.length ?? 0) === 0) {
+        diagnostics.push({
+          severity: "warning",
+          file: DATA_FILES.entities,
+          pointer: `/${entityId}/components/loot`,
+          message: "loot 没有 entries 或 guarantee.pool，死亡后不会生成有内容的箱子。",
+        });
+      }
+    }
+
     for (const attr of Object.keys(components.attributes ?? {})) {
       if (!attributeIds.has(attr)) {
         diagnostics.push({
@@ -305,6 +349,18 @@ function validateCrossReferences(data: GameData, diagnostics: Diagnostic[]): voi
         });
       }
     }
+  }
+}
+
+function validateLootQuantity(entityId: string, pointer: string, quantity: { min?: number; max?: number } | undefined, diagnostics: Diagnostic[]): void {
+  if (!quantity || quantity.min === undefined || quantity.max === undefined) return;
+  if (Number(quantity.min) > Number(quantity.max)) {
+    diagnostics.push({
+      severity: "error",
+      file: DATA_FILES.entities,
+      pointer: `/${entityId}/components/${pointer}/quantity`,
+      message: `quantity.min 不能大于 quantity.max；当前为 ${quantity.min} > ${quantity.max}。`,
+    });
   }
 }
 

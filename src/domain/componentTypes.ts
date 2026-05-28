@@ -14,6 +14,10 @@ import type {
   firearmRuntimeSchema,
   itemPrototypeComponentsSchema,
   itemRuntimeComponentsSchema,
+  lootComponentSchema,
+  lootContainerRuntimeSchema,
+  lootEntrySchema,
+  lootGuaranteeEntrySchema,
   periodicEffectSchema,
   projectileConfigSchema,
   projectileLauncherSchema,
@@ -47,6 +51,10 @@ export type ProjectileLauncherComponent = FromSchema<typeof projectileLauncherSc
 export type ProjectileRuntimeComponent = FromSchema<typeof projectileRuntimeSchema, SchemaTypeOptions> & Record<string, unknown>;
 export type AmmoComponent = FromSchema<typeof ammoSchema, SchemaTypeOptions>;
 export type AmmoRound = FromSchema<typeof ammoRoundSchema, SchemaTypeOptions>;
+export type LootEntry = FromSchema<typeof lootEntrySchema, SchemaTypeOptions>;
+export type LootGuaranteeEntry = FromSchema<typeof lootGuaranteeEntrySchema, SchemaTypeOptions>;
+export type LootComponent = FromSchema<typeof lootComponentSchema, SchemaTypeOptions>;
+export type LootContainerRuntime = FromSchema<typeof lootContainerRuntimeSchema, SchemaTypeOptions>;
 export type FirearmComponent = FromSchema<typeof firearmRuntimeSchema, SchemaTypeOptions>;
 export type ActiveEffectLayer = FromSchema<typeof activeEffectLayerSchema, SchemaTypeOptions> & Record<string, unknown>;
 export type ActiveEffectRuntime = FromSchema<typeof activeEffectRuntimeSchema, SchemaTypeOptions> & Record<string, unknown>;

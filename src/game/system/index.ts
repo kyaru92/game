@@ -6,6 +6,8 @@ export { EffectApplierSystem } from "./EffectApplierSystem";
 export { EffectSystem } from "./EffectSystem";
 export { EntitySpawnerSystem } from "./EntitySpawnerSystem";
 export { FirearmSystem } from "./FirearmSystem";
+export { LootSystem } from "./LootSystem";
+export type { LootContainerView, RevealedLootItemView } from "./LootSystem";
 export { ProjectileLauncherSystem } from "./ProjectileLauncherSystem";
 export { ProjectileSystem } from "./ProjectileSystem";
 export { TeleportSystem } from "./TeleportSystem";

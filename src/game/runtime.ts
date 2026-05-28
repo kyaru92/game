@@ -1,5 +1,5 @@
 import { parse } from "jsonc-parser";
-import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, FirearmSystem, ProjectileLauncherSystem, ProjectileSystem, TeleportSystem } from "./systems";
+import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, FirearmSystem, LootSystem, ProjectileLauncherSystem, ProjectileSystem, TeleportSystem } from "./systems";
 import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
 import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
@@ -22,10 +22,11 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
   new ProjectileLauncherSystem(world);
   new TeleportSystem(world);
   new EntitySpawnerSystem(world);
+  const lootSystem = new LootSystem(world);
   const projectileSystem = new ProjectileSystem(world);
   const effectSystem = new EffectSystem(world);
   const attributeSystem = new AttributeSystem(world);
-  world.systems.push(activationSystem, firearmSystem, projectileSystem, effectSystem);
+  world.systems.push(activationSystem, firearmSystem, lootSystem, projectileSystem, effectSystem);
 
   const grantedItems: Record<string, string> = {};
   for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg", "impact-hammer", "basic-pistol", "toxic-nine-mm-round", "explosive-nine-mm-round", "nine-mm-round"]) {
@@ -38,7 +39,7 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
   if (grantedItems["basic-pistol"]) world.equipItem("player", grantedItems["basic-pistol"]);
   world.log("Canvas ECS MVP 已启动：WASD/方向键移动，1-7 快捷栏，B 打开背包，鼠标左键使用当前装备，R 装填枪械。");
 
-  return { world, activationSystem, firearmSystem, effectSystem, attributeSystem };
+  return { world, activationSystem, firearmSystem, lootSystem, effectSystem, attributeSystem };
 }
 
 export function getEffectSummaries(world: World, entity: Entity): EffectSummary[] {

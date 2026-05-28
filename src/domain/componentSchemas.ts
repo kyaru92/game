@@ -379,6 +379,91 @@ export const targetingSchema = {
   },
 } as const satisfies JSONSchema;
 
+export const lootQuantitySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    min: { type: "integer", minimum: 1, description: "随机数量下限。" },
+    max: { type: "integer", minimum: 1, description: "随机数量上限。" },
+  },
+} as const satisfies JSONSchema;
+
+export const lootEntrySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["item"],
+  properties: {
+    item: { type: "string", pattern: prototypeIdPattern, description: "掉落的 item prototype id。" },
+    chance: { type: "number", minimum: 0, maximum: 1, default: 1, description: "独立掉落概率，0~1。" },
+    quantity: { ...lootQuantitySchema, description: "堆叠物品的随机数量。" },
+  },
+} as const satisfies JSONSchema;
+
+export const lootGuaranteeEntrySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["item", "weight"],
+  properties: {
+    item: { type: "string", pattern: prototypeIdPattern, description: "保底池 item prototype id。" },
+    weight: { type: "number", minimum: 0, description: "保底池抽取权重。" },
+    quantity: { ...lootQuantitySchema, description: "堆叠物品的随机数量。" },
+  },
+} as const satisfies JSONSchema;
+
+export const lootComponentSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    containerPrototype: { type: "string", pattern: prototypeIdPattern, default: "loot-crate", description: "死亡后生成的箱子 entity prototype id。" },
+    spawnChance: { type: "number", minimum: 0, maximum: 1, default: 1, description: "生成箱子的概率；默认必定生成。" },
+    entries: { type: "array", items: lootEntrySchema, default: [], description: "普通掉落列表；每项独立按 chance 掷骰。" },
+    guarantee: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        minItems: { type: "integer", minimum: 1, default: 1, description: "普通掉落不足时，保底到至少多少件。" },
+        pool: { type: "array", items: lootGuaranteeEntrySchema, default: [], description: "保底权重池。" },
+      },
+    },
+  },
+} as const satisfies JSONSchema;
+
+export const interactableSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind"],
+  properties: {
+    kind: { type: "string", enum: ["loot_container"], description: "交互类型。" },
+    range: { type: "number", minimum: 0, default: 1.2, description: "玩家可交互距离。" },
+  },
+} as const satisfies JSONSchema;
+
+export const lootContainerRuntimeSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["hiddenItemIds", "revealedItemIds"],
+  properties: {
+    title: { type: "string", description: "箱子界面标题。" },
+    sourceEntityId: { type: "string", description: "来源实体 id。" },
+    sourceEntityName: { type: "string", description: "来源实体名称。" },
+    createdAtMs: { type: "number", description: "运行时创建时间。" },
+    hiddenItemIds: { type: "array", items: { type: "string" }, description: "尚未发现的 item instance id；UI 不应直接展示。" },
+    revealedItemIds: { type: "array", items: { type: "string" }, description: "已搜索发现、可拿取的 item instance id。" },
+    currentSearch: {
+      type: "object",
+      additionalProperties: false,
+      required: ["actorId", "itemId", "startedAtMs", "finishAtMs", "durationMs"],
+      properties: {
+        actorId: { type: "string" },
+        itemId: { type: "string" },
+        startedAtMs: { type: "number" },
+        finishAtMs: { type: "number" },
+        durationMs: { type: "number" },
+      },
+    },
+  },
+} as const satisfies JSONSchema;
+
 export const catalogSchema = {
   type: "object",
   additionalProperties: false,
@@ -581,7 +666,8 @@ export const entityPrototypeComponentsSchema = {
       },
     },
     ai: looseObjectSchema,
-    loot: looseObjectSchema,
+    interactable: interactableSchema,
+    loot: lootComponentSchema,
   },
 } as const satisfies JSONSchema;
 
@@ -608,6 +694,7 @@ export const entityRuntimeComponentsSchema = {
       },
     },
     projectile: projectileRuntimeSchema,
+    loot_container: lootContainerRuntimeSchema,
     _deathLogged: { type: "boolean" },
   },
 } as const satisfies JSONSchema;

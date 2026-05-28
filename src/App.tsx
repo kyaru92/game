@@ -18,6 +18,7 @@ import {
   itemIcon,
   targetForItem,
   type EffectSummary,
+  type LootContainerView,
   type Entity,
   type GameRuntime,
   type ItemInstance,
@@ -61,6 +62,7 @@ export default function App() {
   const [commandFocused, setCommandFocused] = useState(false);
   const [sideTab, setSideTab] = useState<"status" | "inventory" | "supply">("status");
   const [backpackOpen, setBackpackOpen] = useState(false);
+  const [openLootContainerId, setOpenLootContainerId] = useState<string | null>(null);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [, forceRender] = useState(0);
 
@@ -171,6 +173,39 @@ export default function App() {
     refreshUi();
   }, [refreshUi, runtime]);
 
+  const closeLootContainer = useCallback(() => {
+    runtime.lootSystem.cancelSearch("player", openLootContainerId ?? undefined, "中断搜索");
+    setOpenLootContainerId(null);
+    refreshUi();
+  }, [openLootContainerId, refreshUi, runtime]);
+
+  const openLootContainer = useCallback((containerId: string) => {
+    setOpenLootContainerId(containerId);
+    runtime.lootSystem.beginAutoSearch("player", containerId);
+    refreshUi();
+  }, [refreshUi, runtime]);
+
+  const interactLootContainer = useCallback(() => {
+    const nearest = runtime.lootSystem.nearestContainer("player");
+    if (!nearest) {
+      runtime.world.log("附近没有可交互的掉落箱。");
+      refreshUi();
+      return;
+    }
+    openLootContainer(nearest.entityId);
+  }, [openLootContainer, refreshUi, runtime]);
+
+  const takeLootItem = useCallback((itemId: string) => {
+    if (!openLootContainerId) return;
+    runtime.lootSystem.takeRevealedItem("player", openLootContainerId, itemId);
+    refreshUi();
+  }, [openLootContainerId, refreshUi, runtime]);
+
+  const organizeBackpack = useCallback(() => {
+    runtime.world.organizeInventory("player");
+    refreshUi();
+  }, [refreshUi, runtime]);
+
   const giveItem = useCallback((protoId: string) => {
     runtime.world.give("player", protoId);
     refreshUi();
@@ -209,7 +244,7 @@ export default function App() {
     const loop = (time: number) => {
       const deltaSeconds = Math.min(0.05, Math.max(0, (time - lastFrameAt) / 1000));
       lastFrameAt = time;
-      updatePlayerFreeMovement(runtime, movementKeysRef.current, deltaSeconds);
+      if (!runtime.lootSystem.isActorSearching("player")) updatePlayerFreeMovement(runtime, movementKeysRef.current, deltaSeconds);
       runtime.world.tick();
       resizeCanvas(canvas);
       drawWorld(context, runtime, selectedTargetRef.current);
@@ -229,9 +264,30 @@ export default function App() {
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
       const key = event.key.toLowerCase();
 
+      const searchingLoot = runtime.lootSystem.isActorSearching("player");
+
+      if ((key === "c" || key === "escape") && searchingLoot) {
+        event.preventDefault();
+        runtime.lootSystem.cancelSearch("player", openLootContainerId ?? undefined, "中断搜索");
+        setOpenLootContainerId(null);
+        refreshUi();
+        return;
+      }
+
       if (key in MOVEMENT_VECTORS) {
         event.preventDefault();
-        movementKeysRef.current.add(key);
+        if (!searchingLoot) movementKeysRef.current.add(key);
+        return;
+      }
+
+      if (key === "e") {
+        event.preventDefault();
+        if (!searchingLoot) interactLootContainer();
+        return;
+      }
+
+      if (searchingLoot && key !== "escape" && key !== "c") {
+        event.preventDefault();
         return;
       }
 
@@ -277,7 +333,7 @@ export default function App() {
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", clearMovement);
     };
-  }, [activateHotbarSlot, cancelCasting, reloadActiveEquipment]);
+  }, [activateHotbarSlot, cancelCasting, interactLootContainer, openLootContainerId, refreshUi, reloadActiveEquipment, runtime]);
 
   const handleCanvasMouseMove = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -287,12 +343,21 @@ export default function App() {
   }, [runtime]);
 
   const handleCanvasClick = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
+    if (runtime.lootSystem.isActorSearching("player")) {
+      runtime.world.log("正在搜索，无法操作。按 Esc 可中断搜索。");
+      refreshUi();
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const point = eventToWorldPoint(canvas, event.clientX, event.clientY, runtime.world);
     if (!point) return;
     cursorPositionRef.current = [point.x, point.y];
     const entity = runtime.world.entityAt(point.x, point.y);
+    if (entity?.components.loot_container && runtime.lootSystem.canInteract("player", entity.entityId)) {
+      openLootContainer(entity.entityId);
+      return;
+    }
     const activeItemId = runtime.world.activeItemId("player");
     const activeItem = activeItemId ? runtime.world.items[activeItemId] : undefined;
 
@@ -322,16 +387,27 @@ export default function App() {
     setSelectedTarget(target);
     runtime.world.log(`选择目标：${describeTarget(runtime.world, target)}`);
     refreshUi();
-  }, [refreshUi, runtime, setSelectedTarget]);
+  }, [openLootContainer, refreshUi, runtime, setSelectedTarget]);
+
+  useEffect(() => {
+    if (!openLootContainerId) return;
+    if (runtime.world.entities[openLootContainerId] && runtime.lootSystem.canInteract("player", openLootContainerId)) return;
+    runtime.lootSystem.cancelSearch("player", openLootContainerId, "离开箱子范围");
+    setOpenLootContainerId(null);
+    refreshUi();
+  }, [openLootContainerId, refreshUi, runtime]);
 
   const world = runtime.world;
   const player = world.entities.player;
-  const inventory = world.inventory("player").map((itemId) => world.items[itemId]).filter(Boolean);
+  const inventory = world.inventory("player").map((itemId) => world.items[itemId]).filter((item): item is ItemInstance => Boolean(item));
   const hotbarSlots = world.hotbar("player");
   const activeItemId = world.activeItemId("player");
   const selectedEntity = selectedTarget.kind === "entity" && selectedTarget.entityId ? world.entities[selectedTarget.entityId] : undefined;
   const entities = Object.values(world.entities).sort((a, b) => (a.entityId === "player" ? -1 : b.entityId === "player" ? 1 : a.entityId.localeCompare(b.entityId)));
   const visibleEntities = entities.slice(0, 4);
+  const nearbyLootContainer = runtime.lootSystem.nearestContainer("player");
+  const lootContainerOpen = openLootContainerId && world.entities[openLootContainerId] && runtime.lootSystem.canInteract("player", openLootContainerId) ? openLootContainerId : null;
+  const lootView = lootContainerOpen ? runtime.lootSystem.containerView("player", lootContainerOpen) : undefined;
   const casting = player.components.casting;
   const castProgress = casting ? 1 - Math.max(0, casting.finishAtMs - world.nowMs()) / Math.max(1, casting.finishAtMs - casting.startedAtMs) : 0;
 
@@ -357,7 +433,7 @@ export default function App() {
           </div>
           <div className="canvas-caption">
             <span>当前目标：<strong>{describeTarget(world, selectedTarget)}</strong></span>
-            <span>点击非玩家实体先选中；当前位置目标会使用鼠标位置。</span>
+            <span>{nearbyLootContainer ? <>附近箱子：<strong>{nearbyLootContainer.name}</strong>，按 <kbd>E</kbd> 交互。</> : "点击非玩家实体先选中；当前位置目标会使用鼠标位置。"}</span>
           </div>
         </div>
 
@@ -367,7 +443,9 @@ export default function App() {
               <h2>目标与施法</h2>
               <span className="target-inline">{describeTarget(world, selectedTarget)}</span>
             </div>
-            {casting ? (
+            {lootView ? (
+              <LootPanel view={lootView} onTake={takeLootItem} onClose={closeLootContainer} />
+            ) : casting ? (
               <div className="casting-box compact-cast">
                 <div className="row between"><span>正在使用</span><strong>{casting.itemName}</strong></div>
                 <div className="progress"><i style={{ width: `${Math.round(castProgress * 100)}%` }} /></div>
@@ -401,6 +479,7 @@ export default function App() {
                 <div className="row between title-row">
                   <h2>背包</h2>
                   <span className="muted">{backpackOpen ? "按 B 关闭" : "按 B 打开"} · 设置 1-7 快捷栏</span>
+                  <button className="tiny-action" onClick={organizeBackpack}>整理</button>
                 </div>
                 <div className="inventory-list">
                   {inventory.length ? inventory.map((item, index) => (
@@ -549,6 +628,34 @@ function HudHpBar({ hp, maxHp }: { hp: number; maxHp: number }) {
   return <div className="hud-hp"><i style={{ width: `${pct}%` }} /><span>{hp}/{maxHp}</span></div>;
 }
 
+function LootPanel({ view, onTake, onClose }: { view: LootContainerView; onTake: (itemId: string) => void; onClose: () => void }) {
+  return (
+    <div className="loot-panel">
+      <div className="row between loot-title">
+        <strong>{view.title}</strong>
+        <button className="tiny-action" onClick={onClose}>{view.isSearching ? "中断" : "关闭"}</button>
+      </div>
+      {view.isSearching && <div className="searching-hidden">正在搜索……</div>}
+      <div className="loot-list">
+        {view.revealedItems.length ? view.revealedItems.map((item) => (
+          <article key={item.itemId} className="loot-row">
+            <div className="item-icon">{itemIcon(item.protoId)}</div>
+            <div className="item-main">
+              <div className="row between"><strong>{item.name}{item.quantity ? ` ×${item.quantity}` : ""}</strong><span className="muted">{item.category}</span></div>
+              <p>{item.description}</p>
+            </div>
+            <button disabled={!item.canTake || view.isSearching} onClick={() => onTake(item.itemId)}>拿取</button>
+          </article>
+        )) : <p className="muted compact">尚未发现物品。</p>}
+      </div>
+      <div className="search-next passive-search-state">
+        {view.isSearching ? "自动搜索中" : view.hasMoreUnknownItems ? "等待继续搜索" : "箱子已搜空"}
+      </div>
+      <p className="muted compact">打开箱子后会自动逐个搜索；搜索期间无法移动，搜索耗时和剩余数量不会显示。</p>
+    </div>
+  );
+}
+
 function Hotbar({ slots, world, activeItemId, onSlot }: { slots: Array<string | null>; world: World; activeItemId?: string; onSlot: (slotIndex: number) => void }) {
   return (
     <div className="hotbar" aria-label="快捷栏">
@@ -651,7 +758,7 @@ function InventoryRow({ index, item, world, onPrimary, onAssignHotbar }: { index
       <div className="item-icon">{itemIcon(item.protoId)}</div>
       <div className="item-main">
         <div className="row between"><strong>{displayItemName(item)}</strong><span className="muted">{itemCategory(item)} · {targetMode}</span></div>
-        <p>{interpolateItemText(item.components.display?.description ?? item.protoId, item)}</p>
+        <p>{interpolateItemText(String(item.components.display?.description ?? item.protoId), item)}</p>
         <div className="item-meta">
           {stackText && <span>{stackText}</span>}
           <span>次数 {charges}</span>

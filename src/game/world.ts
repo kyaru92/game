@@ -1,7 +1,7 @@
 import { EventBus } from "./eventBus";
 import type { EffectDefinitions, EntityDefinitions, ItemDefinitions } from "../domain/componentTypes";
 import type { Entity, ItemInstance, JsonObj, VisualEvent } from "./types";
-import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState, isEquipmentItem } from "./utils";
+import { deepClone, deepMerge, displayItemName, initEntityRuntimeState, initItemRuntimeState, isEquipmentItem, itemCategory } from "./utils";
 
 export interface CreateEntityOptions {
   entityId?: string;
@@ -12,6 +12,13 @@ export interface CreateEntityOptions {
 
 export interface MoveOptions {
   logFailure?: boolean;
+}
+
+export interface AddInventoryItemOptions {
+  verb?: string;
+  merge?: boolean;
+  autoHotbar?: boolean;
+  log?: boolean;
 }
 
 export interface CollisionBox {
@@ -204,12 +211,30 @@ export class World {
 
   give(entityId: string, protoId: string): ItemInstance {
     const item = this.createItem(protoId);
-    return this.addInventoryItem(entityId, item, "获得");
+    return this.addInventoryItem(entityId, item, { verb: "获得" });
   }
 
   giveCustomItem(entityId: string, protoId: string, components: JsonObj): ItemInstance {
     const item = this.createCustomItem(protoId, components);
-    return this.addInventoryItem(entityId, item, "获得自定义物品");
+    return this.addInventoryItem(entityId, item, { verb: "获得自定义物品" });
+  }
+
+  addInventoryItem(entityId: string, item: ItemInstance, options: AddInventoryItemOptions = {}): ItemInstance {
+    const verb = options.verb ?? "获得";
+    const shouldLog = options.log ?? true;
+    const receivedText = stackDisplaySuffix(item);
+    if (options.merge ?? true) {
+      const merged = this.tryMergeStack(entityId, item);
+      if (merged) {
+        delete this.items[item.instanceId];
+        if (shouldLog) this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(merged)}${receivedText}。`);
+        return merged;
+      }
+    }
+    this.inventory(entityId).push(item.instanceId);
+    if (options.autoHotbar ?? true) this.autoHotbarItem(entityId, item.instanceId);
+    if (shouldLog) this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(item)}${receivedText}。`);
+    return item;
   }
 
   removeInventoryItem(entityId: string, itemId: string): void {
@@ -220,18 +245,40 @@ export class World {
     delete this.items[itemId];
   }
 
-  private addInventoryItem(entityId: string, item: ItemInstance, verb: string): ItemInstance {
-    const receivedText = stackDisplaySuffix(item);
-    const merged = this.tryMergeStack(entityId, item);
-    if (merged) {
-      delete this.items[item.instanceId];
-      this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(merged)}${receivedText}。`);
-      return merged;
+  organizeInventory(entityId: string): void {
+    const inventory = this.inventory(entityId);
+    const beforeCount = inventory.length;
+    let mergedCount = 0;
+
+    for (let i = 0; i < inventory.length; i += 1) {
+      const itemId = inventory[i];
+      const item = this.items[itemId];
+      if (!item || !canManualMerge(item)) continue;
+      for (let j = i + 1; j < inventory.length; j += 1) {
+        const otherId = inventory[j];
+        const other = this.items[otherId];
+        if (!other || other.protoId !== item.protoId || !canManualMerge(other)) continue;
+        const space = stackMax(item) - stackQuantity(item);
+        if (space <= 0) break;
+        const otherQuantity = stackQuantity(other);
+        const moved = Math.min(space, otherQuantity);
+        const remaining = otherQuantity - moved;
+        item.components.stacking ??= {};
+        other.components.stacking ??= {};
+        item.components.stacking.quantity = stackQuantity(item) + moved;
+        other.components.stacking.quantity = remaining;
+        if (remaining <= 0) {
+          inventory.splice(j, 1);
+          this.clearItemReferences(entityId, otherId);
+          delete this.items[otherId];
+          mergedCount += 1;
+          j -= 1;
+        }
+      }
     }
-    this.inventory(entityId).push(item.instanceId);
-    this.autoHotbarItem(entityId, item.instanceId);
-    this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(item)}${receivedText}。`);
-    return item;
+
+    inventory.sort((a, b) => compareInventoryItems(this.items[a], this.items[b]));
+    this.log(`${this.entityName(entityId)} 整理背包：${beforeCount} -> ${inventory.length} 格，合并 ${mergedCount} 组。`);
   }
 
   private autoHotbarItem(entityId: string, itemId: string): void {
@@ -296,6 +343,9 @@ export class World {
         }
         continue;
       }
+      const position = entity.components.position ? { ...entity.components.position } : undefined;
+      const bounds = this.entityBounds(entity);
+      this.bus.emit("OnEntityDeath", { entityId: entity.entityId, entity, position, bounds });
       this.addBurst(entity.entityId, "#f43f5e");
       this.removeEntity(entity.entityId, entity.components.obstacle ? "被摧毁" : "生命归零并消失");
     }
@@ -501,12 +551,36 @@ function stackMax(item: ItemInstance): number {
 }
 
 function stackQuantity(item: ItemInstance): number {
-  return Math.max(1, Number(item.components.stacking?.quantity ?? 1));
+  return Math.max(0, Number(item.components.stacking?.quantity ?? 1));
 }
 
 function stackDisplaySuffix(item: ItemInstance): string {
   const max = stackMax(item);
   return max > 1 ? ` ×${stackQuantity(item)}` : "";
+}
+
+function canManualMerge(item: ItemInstance): boolean {
+  return stackMax(item) > 1 && !item.components.activation;
+}
+
+function compareInventoryItems(a: ItemInstance | undefined, b: ItemInstance | undefined): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  const groupDelta = inventoryGroup(a) - inventoryGroup(b);
+  if (groupDelta !== 0) return groupDelta;
+  const nameDelta = displayItemName(a).localeCompare(displayItemName(b), "zh-CN");
+  if (nameDelta !== 0) return nameDelta;
+  return a.instanceId.localeCompare(b.instanceId);
+}
+
+function inventoryGroup(item: ItemInstance): number {
+  const category = itemCategory(item);
+  if (category === "equipment") return 0;
+  if (category === "consumable") return 1;
+  if (category === "ammo") return 2;
+  if (category === "material") return 3;
+  return 4;
 }
 
 function collisionBox(components: JsonObj, position: { x: number; y: number }, defaultRadius: number): CollisionBox {

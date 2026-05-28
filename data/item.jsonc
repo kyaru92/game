@@ -64,6 +64,9 @@
             "economy": {
                 "baseValue": 26,
             },
+            "searchable": {
+                "searchDurationMs": 1500,
+            },
             "targeting": {
                 "mode": "self",
             },
@@ -96,6 +99,9 @@
             },
             "economy": {
                 "baseValue": 12,
+            },
+            "searchable": {
+                "searchDurationMs": 1100,
             },
             "targeting": {
                 "mode": "self",
@@ -322,6 +328,9 @@
             "economy": {
                 "baseValue": 80,
             },
+            "searchable": {
+                "searchDurationMs": 3200,
+            },
             "quality": {
                 "value": "green",
             },
@@ -371,6 +380,9 @@
             "economy": {
                 "baseValue": 1,
             },
+            "searchable": {
+                "searchDurationMs": 650,
+            },
             "ammo": {
                 "ammoType": "9mm",
                 "damage": 10,
@@ -404,6 +416,9 @@
             },
             "quality": {
                 "value": "green",
+            },
+            "searchable": {
+                "searchDurationMs": 900,
             },
             "ammo": {
                 "ammoType": "9mm",
@@ -442,6 +457,9 @@
             },
             "quality": {
                 "value": "blue",
+            },
+            "searchable": {
+                "searchDurationMs": 1200,
             },
             "ammo": {
                 "ammoType": "9mm",

@@ -190,6 +190,7 @@ kbd {
 
 .panel-card h2 { color: #dbeafe; font-size: 15px; }
 .title-row h2 { margin: 0; }
+.tiny-action { padding: 4px 8px; border-radius: 7px; font-size: 11px; }
 .row { display: flex; align-items: center; gap: 8px; }
 .between { justify-content: space-between; }
 .muted { color: #8fa3bd; font-size: 11px; }
@@ -236,6 +237,32 @@ kbd {
   height: 100%;
 }
 
+.loot-panel { margin-top: 8px; display: grid; gap: 7px; font-size: 12px; }
+.loot-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fde68a; }
+.searching-hidden {
+  padding: 9px 10px;
+  border: 1px dashed rgba(250, 204, 21, 0.45);
+  border-radius: 11px;
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.08);
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.loot-list { max-height: 145px; overflow: auto; display: grid; gap: 6px; padding-right: 3px; }
+.loot-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 11px;
+  background: rgba(15, 23, 42, 0.58);
+}
+.loot-row .item-main p { margin: 2px 0 0; color: #9fb2cc; font-size: 10px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loot-row button, .search-next { padding: 6px 8px; font-size: 12px; }
+.passive-search-state { border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 9px; color: #bfdbfe; background: rgba(15, 23, 42, 0.48); text-align: center; font-weight: 800; }
 .casting-box { margin-top: 8px; display: grid; gap: 7px; font-size: 12px; }
 .compact-cast {
   grid-template-columns: minmax(0, 1fr) auto;
