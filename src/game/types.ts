@@ -52,6 +52,7 @@ export interface EffectSummary {
 export interface GameRuntime {
   world: import("./world").World;
   activationSystem: import("./systems").ActivationSystem;
+  firearmSystem: import("./systems").FirearmSystem;
   effectSystem: import("./systems").EffectSystem;
   attributeSystem: import("./systems").AttributeSystem;
 }

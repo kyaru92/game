@@ -12,6 +12,7 @@ const COMMAND_HELP = [
   "  item <owner> <protoId> <components-json>          # 创建自定义 component 物品并放入背包",
   "    例：item @player debug-potion {\"display\":{\"name\":\"调试药水\"},\"targeting\":{\"mode\":\"self\"},\"activation\":{\"max\":3},\"effect_applier\":[{\"kind\":\"regeneration\",\"target\":\"self\"}]}",
   "  give <entity> <itemProtoId>",
+  "  reload <entity> [slotIndex]                       # 装填指定槽位枪械；slotIndex 从 1 开始",
   "  apply <effectId> <entity>",
   "  damage <entity> <amount> [damageType] / heal <entity> <amount>",
   "    例：damage crate-1 15 impact   # 木箱只接受 impact/fire 等允许类型",
@@ -56,6 +57,9 @@ export function executeCommand(runtime: GameRuntime, line: string): void {
         return;
       case "give":
         giveItem(runtime, tokens);
+        return;
+      case "reload":
+        reloadFirearm(runtime, tokens);
         return;
       case "apply":
       case "effect":
@@ -142,6 +146,17 @@ function giveItem(runtime: GameRuntime, tokens: string[]): void {
   const protoId = tokens[2];
   if (!entityId || !protoId) throw new Error("用法：give <entity> <itemProtoId>");
   world.give(entityId, protoId);
+}
+
+function reloadFirearm(runtime: GameRuntime, tokens: string[]): void {
+  const world = runtime.world;
+  const entityId = world.findEntity(tokens[1] ?? "");
+  if (!entityId) throw new Error("用法：reload <entity> [slotIndex]");
+  const inventory = world.inventory(entityId);
+  const explicitIndex = isNumber(tokens[2]) ? Number(tokens[2]) - 1 : undefined;
+  const inventoryIndex = explicitIndex ?? inventory.findIndex((itemId) => Boolean(world.items[itemId]?.components.firearm));
+  if (!Number.isInteger(inventoryIndex) || inventoryIndex < 0 || inventoryIndex >= inventory.length) throw new Error("找不到可装填的枪械槽位");
+  runtime.firearmSystem.reload(entityId, inventoryIndex);
 }
 
 function applyEffect(runtime: GameRuntime, tokens: string[]): void {

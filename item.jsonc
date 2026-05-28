@@ -119,11 +119,18 @@
                 "range": 30,
                 "default": "@dummy",
             },
+            "projectile_launcher": {
+                "speed": 12,
+                "maxDistance": 30,
+                "radius": 0.08,
+                "color": "#84cc16",
+                "glyph": "•",
+            },
             "effect_applier": [
                 {
                     "kind": "poison",
                     "chance": 1,
-                    "target": "activation_target",
+                    "target": "impact_target",
                 },
             ],
             "activation": {
@@ -148,6 +155,14 @@
             "targeting": {
                 "mode": "position",
                 "range": 40,
+            },
+            "projectile_launcher": {
+                "speed": 8,
+                "maxDistance": 40,
+                "radius": 0.12,
+                "impactRadius": 2,
+                "color": "#22c55e",
+                "glyph": "●",
             },
             "effect_applier": [
                 {
@@ -250,6 +265,145 @@
                 "cooldownMs": 500,
                 "castDurationMs": 500,
                 "consumeWhenDepleted": true,
+            },
+        },
+    },
+
+    "basic-pistol": {
+        "components": {
+            "display": {
+                "name": "基础手枪",
+                "description": "使用弹匣内的 9mm 子弹发射投射物；空弹匣会先从背包装填。",
+                "icon": "/assets/items/basic-pistol.png",
+            },
+            "economy": {
+                "baseValue": 80,
+            },
+            "quality": {
+                "value": "green",
+            },
+            "targeting": {
+                "mode": "entity",
+                "range": 12,
+                "default": "@dummy",
+            },
+            "firearm": {
+                "acceptedAmmoTypes": ["9mm"],
+                "magazineSize": 6,
+                "reloadDurationMs": 1200,
+                "partialReload": true,
+                "allowMixedMagazine": true,
+                "damageBonus": 2,
+                "damageMultiplier": 1.0,
+                "projectileSpeed": 18,
+                "maxDistance": 12,
+                "spreadDeg": 2,
+                "projectileColor": "#facc15",
+                "projectileGlyph": "•",
+            },
+            "activation": {
+                "max": 1,
+                "cooldownMs": 280,
+                "castDurationMs": 0,
+                "consumeCharge": false,
+                "consumeWhenDepleted": false,
+            },
+        },
+    },
+
+    "nine-mm-round": {
+        "components": {
+            "display": {
+                "name": "9mm 子弹",
+                "description": "可交易、可丢弃的普通 9mm 弹药。",
+                "icon": "/assets/items/nine-mm-round.png",
+            },
+            "stacking": {
+                "max": 50,
+                "initialQuantity": 24,
+            },
+            "economy": {
+                "baseValue": 1,
+            },
+            "ammo": {
+                "ammoType": "9mm",
+                "damage": 10,
+                "damageType": "piercing",
+                "projectile": {
+                    "speed": 18,
+                    "maxDistance": 12,
+                    "pierce": 0,
+                },
+            },
+        },
+    },
+
+    "toxic-nine-mm-round": {
+        "components": {
+            "display": {
+                "name": "淬毒 9mm 子弹",
+                "description": "命中目标时造成穿刺伤害并施加中毒。",
+                "icon": "/assets/items/toxic-nine-mm-round.png",
+            },
+            "stacking": {
+                "max": 50,
+                "initialQuantity": 3,
+            },
+            "economy": {
+                "baseValue": 3,
+            },
+            "quality": {
+                "value": "green",
+            },
+            "ammo": {
+                "ammoType": "9mm",
+                "damage": 8,
+                "damageType": "piercing",
+                "effect_applier": {
+                    "kind": "poison",
+                    "chance": 1,
+                    "target": "impact_target",
+                },
+                "projectile": {
+                    "speed": 17,
+                    "maxDistance": 12,
+                },
+            },
+        },
+    },
+
+    "explosive-nine-mm-round": {
+        "components": {
+            "display": {
+                "name": "爆裂 9mm 子弹",
+                "description": "命中后造成小范围 fire 伤害。",
+                "icon": "/assets/items/explosive-nine-mm-round.png",
+            },
+            "stacking": {
+                "max": 20,
+                "initialQuantity": 2,
+            },
+            "economy": {
+                "baseValue": 5,
+            },
+            "quality": {
+                "value": "blue",
+            },
+            "ammo": {
+                "ammoType": "9mm",
+                "damage": 7,
+                "damageType": "piercing",
+                "areaRadius": 1.2,
+                "damage_applier": {
+                    "amount": 6,
+                    "damageType": "fire",
+                    "target": "impact_area",
+                    "radius": 1.2,
+                },
+                "projectile": {
+                    "speed": 15,
+                    "maxDistance": 10,
+                },
             },
         },
     },

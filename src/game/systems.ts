@@ -1,6 +1,7 @@
 import type { Entity, EventData, ItemInstance, JsonObj, Target } from "./types";
 import type { World } from "./world";
 import {
+  deepClone,
   displayItemName,
   describeTarget,
   effectColor,
@@ -45,7 +46,7 @@ export class ActivationSystem {
       this.world.log(`${displayItemName(item)} 冷却中，还需 ${Math.ceil(cooldownUntil - now)}ms。`);
       return;
     }
-    if (Number(activation.charges ?? 0) <= 0) {
+    if (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0) {
       this.world.log(`${displayItemName(item)} 已无可用次数。`);
       return;
     }
@@ -92,8 +93,20 @@ export class ActivationSystem {
 
     const item = this.world.items[inventory[inventoryIndex]];
     const activation = item.components.activation;
-    if (!activation || Number(activation.charges ?? 0) <= 0) {
+    if (!activation || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0)) {
       this.world.log(`激活失败：${displayItemName(item)} 已不可用。`);
+      return;
+    }
+
+    const beforeData: JsonObj = {
+      actorId,
+      itemId: item.instanceId,
+      inventoryIndex,
+      target,
+    };
+    this.world.bus.emit("BeforeItemActivation", beforeData);
+    if (beforeData.cancelReason) {
+      this.world.log(String(beforeData.cancelReason));
       return;
     }
 
@@ -105,12 +118,14 @@ export class ActivationSystem {
       target,
     });
 
-    activation.charges = Number(activation.charges ?? 1) - 1;
-    activation._cooldownUntilMs = this.world.nowMs() + Number(activation.cooldownMs ?? 0);
-    if (activation.consumeWhenDepleted && activation.charges <= 0) {
-      const [removed] = inventory.splice(inventoryIndex, 1);
-      this.world.log(`${displayItemName(this.world.items[removed])} 已耗尽并被移除。`);
+    if (activation.consumeCharge !== false) {
+      activation.charges = Number(activation.charges ?? 1) - 1;
+      if (activation.consumeWhenDepleted && activation.charges <= 0) {
+        const [removed] = inventory.splice(inventoryIndex, 1);
+        this.world.log(`${displayItemName(this.world.items[removed])} 已耗尽并被移除。`);
+      }
     }
+    activation._cooldownUntilMs = this.world.nowMs() + Number(activation.cooldownMs ?? 0);
   }
 
   cancel(actorId: string): void {
@@ -132,6 +147,7 @@ export class EffectApplierSystem {
 
   private onItemActivation(event: EventData): void {
     const item = this.world.items[event.data.itemId];
+    if (item.components.projectile_launcher || item.components.firearm) return;
     const appliers = normalizeArray(item.components.effect_applier);
     for (const applier of appliers) {
       const chance = Number(applier.chance ?? 1);
@@ -188,6 +204,7 @@ export class DamageApplierSystem {
 
   private onItemActivation(event: EventData): void {
     const item = this.world.items[event.data.itemId];
+    if (item.components.projectile_launcher || item.components.firearm) return;
     const appliers = normalizeArray(item.components.damage_applier);
     for (const applier of appliers) {
       const amount = Number(applier.amount ?? applier.damage ?? 0);
@@ -216,6 +233,240 @@ export class DamageApplierSystem {
       }
       this.world.applyDamage(target.entityId, amount, damageType, displayItemName(item));
     }
+  }
+}
+
+export class FirearmSystem {
+  constructor(private readonly world: World) {
+    world.bus.subscribe("BeforeItemActivation", (event) => this.onBeforeItemActivation(event));
+    world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
+  }
+
+  reload(actorId: string, inventoryIndex: number): void {
+    const inventory = this.world.inventory(actorId);
+    const item = this.world.items[inventory[inventoryIndex]];
+    if (!item) {
+      this.world.log(`背包索引不存在：${inventoryIndex}`);
+      return;
+    }
+    if (!item.components.firearm) {
+      this.world.log(`${displayItemName(item)} 不是枪械。`);
+      return;
+    }
+    this.startReload(actorId, item, true);
+  }
+
+  update(): void {
+    const now = this.world.nowMs();
+    for (const item of Object.values(this.world.items)) {
+      const firearm = item.components.firearm;
+      if (!firearm || !firearm._reloadFinishAtMs || Number(firearm._reloadFinishAtMs) > now) continue;
+      this.finishReload(item);
+    }
+  }
+
+  private onBeforeItemActivation(event: EventData): void {
+    const item = this.world.items[event.data.itemId];
+    const firearm = item?.components.firearm;
+    if (!item || !firearm) return;
+
+    const now = this.world.nowMs();
+    const reloadFinishAt = Number(firearm._reloadFinishAtMs ?? 0);
+    if (reloadFinishAt > now) {
+      event.data.cancelReason = `${displayItemName(item)} 正在装填，还需 ${Math.ceil(reloadFinishAt - now)}ms。`;
+      return;
+    }
+
+    if (magazineRounds(firearm).length > 0) return;
+    const started = this.startReload(String(event.data.actorId), item, false);
+    event.data.cancelReason = started
+      ? `${displayItemName(item)} 弹匣为空，开始装填。`
+      : `${displayItemName(item)} 弹匣为空，且背包里没有可用弹药。`;
+  }
+
+  private onItemActivation(event: EventData): void {
+    const item = this.world.items[event.data.itemId];
+    const firearm = item?.components.firearm;
+    if (!item || !firearm) return;
+
+    const round = magazineRounds(firearm).shift();
+    if (!round) {
+      this.world.log(`${displayItemName(item)} 弹匣为空。`);
+      return;
+    }
+
+    const launched = launchProjectile(this.world, {
+      sourceEntityId: String(event.data.actorId),
+      sourceItemId: item.instanceId,
+      target: event.data.target as Target,
+      displayName: `${displayItemName(item)} / ${round.displayName ?? round.ammoProtoId ?? "子弹"}`,
+      color: String(firearm.projectileColor ?? round.projectile?.color ?? "#facc15"),
+      glyph: String(firearm.projectileGlyph ?? round.projectile?.glyph ?? "•"),
+      radius: Number(firearm.projectileRadius ?? round.projectile?.radius ?? 0.07),
+      payload: buildFirearmProjectilePayload(firearm, round),
+    });
+    if (!launched) return;
+    this.world.log(`${this.world.entityName(String(event.data.actorId))} 使用 ${displayItemName(item)} 发射 ${round.displayName ?? "子弹"}，弹匣剩余 ${magazineRounds(firearm).length}/${magazineSize(firearm)}。`);
+  }
+
+  private startReload(actorId: string, item: ItemInstance, announce: boolean): boolean {
+    const firearm = item.components.firearm;
+    const loaded = magazineRounds(firearm).length;
+    const capacity = magazineSize(firearm);
+    if (loaded >= capacity) {
+      if (announce) this.world.log(`${displayItemName(item)} 弹匣已满。`);
+      return false;
+    }
+    if (!this.availableAmmoCount(actorId, firearm, item.instanceId)) {
+      if (announce) this.world.log(`${displayItemName(item)} 没有可装填的弹药。`);
+      return false;
+    }
+
+    const reloadMs = Math.max(0, Number(firearm.reloadDurationMs ?? 0));
+    firearm._reloadOwnerId = actorId;
+    if (reloadMs <= 0) {
+      this.finishReload(item);
+      return true;
+    }
+    firearm._reloadFinishAtMs = this.world.nowMs() + reloadMs;
+    if (announce) this.world.log(`${displayItemName(item)} 开始装填，需要 ${reloadMs}ms。`);
+    return true;
+  }
+
+  private finishReload(item: ItemInstance): void {
+    const firearm = item.components.firearm;
+    const ownerId = String(firearm._reloadOwnerId ?? "player");
+    const capacity = magazineSize(firearm);
+    const needed = Math.max(0, capacity - magazineRounds(firearm).length);
+    const rounds = this.takeAmmoRounds(ownerId, firearm, item.instanceId, needed);
+    delete firearm._reloadFinishAtMs;
+    delete firearm._reloadOwnerId;
+    if (!rounds.length) {
+      this.world.log(`${displayItemName(item)} 装填失败：没有可用弹药。`);
+      return;
+    }
+    magazineRounds(firearm).push(...rounds);
+    this.world.log(`${displayItemName(item)} 装填 ${rounds.length} 发，弹匣 ${magazineRounds(firearm).length}/${capacity}。`);
+  }
+
+  private availableAmmoCount(ownerId: string, firearm: JsonObj, firearmItemId: string): number {
+    let count = 0;
+    for (const itemId of this.world.inventory(ownerId)) {
+      if (itemId === firearmItemId) continue;
+      const item = this.world.items[itemId];
+      if (!item?.components.ammo || !acceptsAmmo(firearm, item.components.ammo)) continue;
+      count += itemQuantity(item);
+    }
+    return count;
+  }
+
+  private takeAmmoRounds(ownerId: string, firearm: JsonObj, firearmItemId: string, count: number): JsonObj[] {
+    const rounds: JsonObj[] = [];
+    const inventory = this.world.inventory(ownerId);
+    for (const itemId of [...inventory]) {
+      if (rounds.length >= count || itemId === firearmItemId) continue;
+      const item = this.world.items[itemId];
+      if (!item?.components.ammo || !acceptsAmmo(firearm, item.components.ammo)) continue;
+      const quantity = itemQuantity(item);
+      const take = Math.min(quantity, count - rounds.length);
+      for (let index = 0; index < take; index += 1) rounds.push(makeAmmoRound(item));
+      consumeItemQuantity(this.world, ownerId, item, take);
+    }
+    return rounds;
+  }
+}
+
+export class ProjectileLauncherSystem {
+  constructor(private readonly world: World) {
+    world.bus.subscribe("OnItemActivation", (event) => this.onItemActivation(event));
+  }
+
+  private onItemActivation(event: EventData): void {
+    const item = this.world.items[event.data.itemId];
+    const launcher = item?.components.projectile_launcher;
+    if (!item || !launcher) return;
+
+    launchProjectile(this.world, {
+      sourceEntityId: String(event.data.actorId),
+      sourceItemId: item.instanceId,
+      target: event.data.target as Target,
+      displayName: displayItemName(item),
+      color: String(launcher.color ?? "#f8fafc"),
+      glyph: String(launcher.glyph ?? "•"),
+      radius: Number(launcher.radius ?? 0.09),
+      payload: {
+        projectile: projectileConfigFromLauncher(launcher),
+        damage_applier: cloneOptional(launcher.damage_applier ?? item.components.damage_applier),
+        effect_applier: cloneOptional(launcher.effect_applier ?? item.components.effect_applier),
+        impactRadius: launcher.impactRadius,
+      },
+    });
+  }
+}
+
+export class ProjectileSystem {
+  constructor(private readonly world: World) {}
+
+  update(): void {
+    const now = this.world.nowMs();
+    for (const entity of Object.values(this.world.entities)) {
+      if (!entity.components.projectile) continue;
+      this.updateProjectile(entity, now);
+    }
+  }
+
+  private updateProjectile(entity: Entity, now: number): void {
+    const projectile = entity.components.projectile;
+    const position = entity.components.position ?? { x: 0, y: 0 };
+    const lastUpdateMs = Number(projectile.lastUpdateMs ?? now);
+    projectile.lastUpdateMs = now;
+    const deltaSeconds = Math.min(0.05, Math.max(0, (now - lastUpdateMs) / 1000));
+    if (deltaSeconds <= 0) return;
+
+    const speed = Math.max(0, Number(projectile.speed ?? 0));
+    const moveDistance = speed * deltaSeconds;
+    if (moveDistance <= 0) return;
+
+    const targetX = Number(projectile.targetX);
+    const targetY = Number(projectile.targetY);
+    const distanceToTarget = Number.isFinite(targetX) && Number.isFinite(targetY)
+      ? Math.hypot(targetX - position.x, targetY - position.y)
+      : Number.POSITIVE_INFINITY;
+    const travel = Math.min(moveDistance, Number(projectile.remainingDistance ?? moveDistance), distanceToTarget);
+    const next = {
+      x: roundCoord(position.x + Number(projectile.vx ?? 0) * travel),
+      y: roundCoord(position.y + Number(projectile.vy ?? 0) * travel),
+    };
+    projectile.remainingDistance = Math.max(0, Number(projectile.remainingDistance ?? 0) - travel);
+
+    const hit = findProjectileHit(this.world, entity, position, next);
+    if (hit) {
+      entity.components.position = hit.position;
+      this.impact(entity, hit.entity);
+      return;
+    }
+
+    entity.components.position = next;
+    if (distanceToTarget <= moveDistance || projectile.remainingDistance <= 0 || !this.world.isInside(next.x, next.y)) {
+      this.impact(entity, undefined);
+    }
+  }
+
+  private impact(projectileEntity: Entity, hitEntity: Entity | undefined): void {
+    const projectile = projectileEntity.components.projectile;
+    const position = projectileEntity.components.position ?? { x: 0, y: 0 };
+    const impactTarget: Target = hitEntity
+      ? { kind: "entity", entityId: hitEntity.entityId }
+      : { kind: "position", position: [position.x, position.y] };
+    applyProjectilePayload(this.world, projectile, impactTarget, [position.x, position.y]);
+    this.world.addBurst(projectileEntity.entityId, String(projectile.color ?? "#f8fafc"));
+
+    if (hitEntity && Number(projectile.pierce ?? 0) > 0) {
+      projectile.pierce = Number(projectile.pierce) - 1;
+      projectile.hitEntityIds = [...(projectile.hitEntityIds ?? []), hitEntity.entityId];
+      return;
+    }
+    delete this.world.entities[projectileEntity.entityId];
   }
 }
 
@@ -565,11 +816,293 @@ function resolveAreaTargets(world: World, activationTarget: Target, radius: numb
   return Object.values(world.entities)
     .filter((entity) => {
       const position = entity.components.position;
-      if (!position) return false;
+      if (!position || entity.components.projectile) return false;
       const distance = Math.hypot(position.x - areaCenter.x, position.y - areaCenter.y);
       return distance <= radius;
     })
     .map((entity) => entity.entityId);
+}
+
+interface ProjectileLaunchOptions {
+  sourceEntityId: string;
+  sourceItemId?: string;
+  target: Target;
+  displayName: string;
+  color: string;
+  glyph: string;
+  radius: number;
+  payload: JsonObj;
+}
+
+function launchProjectile(world: World, options: ProjectileLaunchOptions): boolean {
+  const source = world.entities[options.sourceEntityId];
+  const sourcePosition = source?.components.position;
+  if (!source || !sourcePosition) {
+    world.log(`${options.displayName} 找不到发射者。`);
+    return false;
+  }
+
+  const target = targetPoint(world, options.target);
+  if (!target) {
+    world.log(`${options.displayName} 需要有效投射目标。`);
+    return false;
+  }
+
+  const dx = target.x - sourcePosition.x;
+  const dy = target.y - sourcePosition.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0.001) {
+    world.log(`${options.displayName} 的目标距离太近，无法发射。`);
+    return false;
+  }
+
+  const payload = cloneOptional(options.payload) ?? {};
+  const projectileConfig = payload.projectile ?? {};
+  const speed = Math.max(0.1, Number(projectileConfig.speed ?? 12));
+  const maxDistance = Math.max(0.1, Number(projectileConfig.maxDistance ?? distance));
+  const radius = Math.max(0.01, Number(options.radius ?? projectileConfig.radius ?? 0.08));
+  const entityId = world.nextEntityId("projectile");
+  world.addEntity({
+    entityId,
+    name: options.displayName,
+    components: {
+      display: {
+        name: options.displayName,
+        glyph: options.glyph,
+        color: options.color,
+        strokeColor: "#f8fafc",
+      },
+      position: { x: roundCoord(sourcePosition.x), y: roundCoord(sourcePosition.y) },
+      collision: {
+        blocksMovement: false,
+        shape: "circle",
+        radius,
+      },
+      projectile: {
+        sourceEntityId: options.sourceEntityId,
+        sourceItemId: options.sourceItemId,
+        displayName: options.displayName,
+        targetX: roundCoord(target.x),
+        targetY: roundCoord(target.y),
+        vx: dx / distance,
+        vy: dy / distance,
+        speed,
+        maxDistance,
+        remainingDistance: maxDistance,
+        radius,
+        pierce: Number(projectileConfig.pierce ?? 0),
+        color: options.color,
+        payload,
+      },
+    },
+  });
+  return true;
+}
+
+function targetPoint(world: World, target: Target): { x: number; y: number } | undefined {
+  if (target.kind === "position" && target.position) return { x: target.position[0], y: target.position[1] };
+  if (target.kind === "entity" && target.entityId) return world.entities[target.entityId]?.components.position;
+  return undefined;
+}
+
+function buildFirearmProjectilePayload(firearm: JsonObj, round: JsonObj): JsonObj {
+  const projectile = { ...(cloneOptional(round.projectile) ?? {}) };
+  projectile.speed = Number(projectile.speed ?? firearm.projectileSpeed ?? 18);
+  projectile.maxDistance = Number(projectile.maxDistance ?? firearm.maxDistance ?? firearm.range ?? 12);
+  projectile.pierce = Number(projectile.pierce ?? firearm.pierce ?? 0);
+
+  const damageAppliers = normalizeArray(round.damage_applier).map((applier) => deepClone(applier));
+  const baseDamage = Number(round.damage ?? 0);
+  const damage = (baseDamage + Number(firearm.damageBonus ?? 0)) * Number(firearm.damageMultiplier ?? 1);
+  if (damage > 0) {
+    const radius = Number(round.areaRadius ?? round.impactRadius ?? 0);
+    damageAppliers.unshift({
+      amount: Number(damage.toFixed(2)),
+      damageType: String(round.damageType ?? firearm.damageType ?? "generic"),
+      target: radius > 0 ? "impact_area" : "impact_target",
+      radius,
+    });
+  }
+
+  return {
+    projectile,
+    damage_applier: damageAppliers,
+    effect_applier: cloneOptional(round.effect_applier),
+    impactRadius: round.impactRadius ?? round.areaRadius,
+  };
+}
+
+function projectileConfigFromLauncher(launcher: JsonObj): JsonObj {
+  const projectile = { ...(cloneOptional(launcher.projectile) ?? {}) };
+  projectile.speed = Number(projectile.speed ?? launcher.speed ?? 10);
+  projectile.maxDistance = Number(projectile.maxDistance ?? launcher.maxDistance ?? 12);
+  projectile.pierce = Number(projectile.pierce ?? launcher.pierce ?? 0);
+  return projectile;
+}
+
+function magazineRounds(firearm: JsonObj): JsonObj[] {
+  firearm.loadedRounds ??= [];
+  return firearm.loadedRounds;
+}
+
+function magazineSize(firearm: JsonObj): number {
+  return Math.max(1, Number(firearm.magazineSize ?? firearm.capacity ?? 1));
+}
+
+function acceptsAmmo(firearm: JsonObj, ammo: JsonObj): boolean {
+  const accepted = stringList(firearm.acceptedAmmoTypes ?? firearm.ammoTypes ?? firearm.ammoType);
+  const ammoType = String(ammo.ammoType ?? "").trim().toLowerCase();
+  return accepted.length === 0 || accepted.includes(ammoType);
+}
+
+function makeAmmoRound(item: ItemInstance): JsonObj {
+  const ammo = item.components.ammo ?? {};
+  return {
+    ammoProtoId: item.protoId,
+    displayName: displayItemName(item),
+    ammoType: String(ammo.ammoType ?? item.protoId),
+    damage: Number(ammo.damage ?? 0),
+    damageType: String(ammo.damageType ?? "generic"),
+    areaRadius: ammo.areaRadius,
+    impactRadius: ammo.impactRadius,
+    damage_applier: cloneOptional(ammo.damage_applier),
+    effect_applier: cloneOptional(ammo.effect_applier),
+    projectile: cloneOptional(ammo.projectile) ?? {},
+  };
+}
+
+function itemQuantity(item: ItemInstance): number {
+  return Math.max(1, Number(item.components.stacking?.quantity ?? 1));
+}
+
+function consumeItemQuantity(world: World, ownerId: string, item: ItemInstance, amount: number): void {
+  if (amount <= 0) return;
+  const stacking = item.components.stacking;
+  if (!stacking || Number(stacking.max ?? 1) <= 1) {
+    world.removeInventoryItem(ownerId, item.instanceId);
+    return;
+  }
+  const remaining = itemQuantity(item) - amount;
+  if (remaining > 0) {
+    stacking.quantity = remaining;
+    return;
+  }
+  world.removeInventoryItem(ownerId, item.instanceId);
+}
+
+function findProjectileHit(world: World, projectileEntity: Entity, from: { x: number; y: number }, to: { x: number; y: number }): { entity: Entity; position: { x: number; y: number } } | undefined {
+  const projectile = projectileEntity.components.projectile;
+  const ignored = new Set<string>([projectileEntity.entityId, String(projectile.sourceEntityId ?? ""), ...(projectile.hitEntityIds ?? [])]);
+  let best: { entity: Entity; position: { x: number; y: number }; distanceAlong: number } | undefined;
+  for (const entity of Object.values(world.entities)) {
+    if (ignored.has(entity.entityId) || entity.components.projectile) continue;
+    const position = entity.components.position;
+    if (!position) continue;
+    const hitRadius = world.entityRadius(entity) + Number(projectile.radius ?? 0.05);
+    const segment = distanceToSegment(position.x, position.y, from, to);
+    if (segment.distance > hitRadius) continue;
+    if (!best || segment.distanceAlong < best.distanceAlong) {
+      best = {
+        entity,
+        position: { x: roundCoord(segment.x), y: roundCoord(segment.y) },
+        distanceAlong: segment.distanceAlong,
+      };
+    }
+  }
+  return best;
+}
+
+function distanceToSegment(px: number, py: number, from: { x: number; y: number }, to: { x: number; y: number }): { distance: number; distanceAlong: number; x: number; y: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq <= 0.000001) {
+    return { distance: Math.hypot(px - from.x, py - from.y), distanceAlong: 0, x: from.x, y: from.y };
+  }
+  const t = Math.max(0, Math.min(1, ((px - from.x) * dx + (py - from.y) * dy) / lengthSq));
+  const x = from.x + dx * t;
+  const y = from.y + dy * t;
+  return {
+    distance: Math.hypot(px - x, py - y),
+    distanceAlong: Math.sqrt(lengthSq) * t,
+    x,
+    y,
+  };
+}
+
+function applyProjectilePayload(world: World, projectile: JsonObj, impactTarget: Target, impactPosition: [number, number]): void {
+  const payload = projectile.payload ?? {};
+  const sourceEntityId = String(projectile.sourceEntityId ?? "");
+  const sourceName = String(projectile.displayName ?? "投射物");
+  for (const applier of normalizeArray(payload.damage_applier)) {
+    applyProjectileDamage(world, applier, sourceEntityId, sourceName, impactTarget, impactPosition);
+  }
+  for (const applier of normalizeArray(payload.effect_applier)) {
+    applyProjectileEffect(world, applier, sourceEntityId, projectile.sourceItemId, impactTarget, impactPosition);
+  }
+}
+
+function applyProjectileDamage(world: World, applier: JsonObj, sourceEntityId: string, sourceName: string, impactTarget: Target, impactPosition: [number, number]): void {
+  const amount = Number(applier.amount ?? applier.damage ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  const damageType = String(applier.damageType ?? "generic");
+  const targetMode = String(applier.target ?? "impact_target");
+  const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+  if (targetMode === "impact_area" || targetMode === "activation_area" || radius > 0) {
+    const targets = resolveAreaTargets(world, { kind: "position", position: impactPosition }, radius || 2);
+    if (!targets.length) world.log(`${sourceName} 的范围伤害没有命中目标。`);
+    for (const targetEntityId of targets) world.applyDamage(targetEntityId, amount, damageType, sourceName);
+    return;
+  }
+  const target = resolveProjectileTarget(world, targetMode, sourceEntityId, impactTarget);
+  if (target.kind === "entity" && target.entityId) world.applyDamage(target.entityId, amount, damageType, sourceName);
+}
+
+function applyProjectileEffect(world: World, applier: JsonObj, sourceEntityId: string, sourceItemId: string | undefined, impactTarget: Target, impactPosition: [number, number]): void {
+  const chance = Number(applier.chance ?? 1);
+  if (Math.random() > chance) return;
+  const effectId = String(applier.kind ?? applier.effectId ?? "");
+  if (!effectId) return;
+  const targetMode = String(applier.target ?? "impact_target");
+  const radius = Number(applier.radius ?? applier.areaRadius ?? 0);
+  if (targetMode === "impact_area" || targetMode === "activation_area" || radius > 0) {
+    const targets = resolveAreaTargets(world, { kind: "position", position: impactPosition }, radius || 2);
+    if (!targets.length) world.log(`范围效果 ${effectId} 没有命中目标。`);
+    for (const targetEntityId of targets) {
+      world.bus.emit("ApplyEffectRequest", {
+        effectId,
+        targetEntityId,
+        sourceEntityId,
+        sourceItemId,
+        effectOverrides: applier.overrides,
+      });
+    }
+    return;
+  }
+  const target = resolveProjectileTarget(world, targetMode, sourceEntityId, impactTarget);
+  if (target.kind !== "entity" || !target.entityId) return;
+  world.bus.emit("ApplyEffectRequest", {
+    effectId,
+    targetEntityId: target.entityId,
+    sourceEntityId,
+    sourceItemId,
+    effectOverrides: applier.overrides,
+  });
+}
+
+function resolveProjectileTarget(world: World, mode: string, sourceEntityId: string, impactTarget: Target): Target {
+  if (mode === "impact_target" || mode === "activation_target") return impactTarget;
+  return resolveEffectTarget(world, mode, sourceEntityId, impactTarget);
+}
+
+function cloneOptional<T>(value: T | undefined): T | undefined {
+  return value === undefined ? undefined : deepClone(value);
+}
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim().toLowerCase()).filter(Boolean);
+  if (typeof value === "string") return [value.trim().toLowerCase()].filter(Boolean);
+  return [];
 }
 
 function formatDistance(value: number): string {

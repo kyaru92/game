@@ -141,16 +141,53 @@ export class World {
 
   give(entityId: string, protoId: string): ItemInstance {
     const item = this.createItem(protoId);
-    this.inventory(entityId).push(item.instanceId);
-    this.log(`${this.entityName(entityId)} 获得：${displayItemName(item)}。`);
-    return item;
+    return this.addInventoryItem(entityId, item, "获得");
   }
 
   giveCustomItem(entityId: string, protoId: string, components: JsonObj): ItemInstance {
     const item = this.createCustomItem(protoId, components);
+    return this.addInventoryItem(entityId, item, "获得自定义物品");
+  }
+
+  removeInventoryItem(entityId: string, itemId: string): void {
+    const inventory = this.inventory(entityId);
+    const index = inventory.indexOf(itemId);
+    if (index >= 0) inventory.splice(index, 1);
+    delete this.items[itemId];
+  }
+
+  private addInventoryItem(entityId: string, item: ItemInstance, verb: string): ItemInstance {
+    const receivedText = stackDisplaySuffix(item);
+    const merged = this.tryMergeStack(entityId, item);
+    if (merged) {
+      delete this.items[item.instanceId];
+      this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(merged)}${receivedText}。`);
+      return merged;
+    }
     this.inventory(entityId).push(item.instanceId);
-    this.log(`${this.entityName(entityId)} 获得自定义物品：${displayItemName(item)}。`);
+    this.log(`${this.entityName(entityId)} ${verb}：${displayItemName(item)}${receivedText}。`);
     return item;
+  }
+
+  private tryMergeStack(entityId: string, item: ItemInstance): ItemInstance | undefined {
+    let remaining = stackQuantity(item);
+    const max = stackMax(item);
+    if (max <= 1 || remaining <= 0 || item.components.activation) return undefined;
+    let lastMerged: ItemInstance | undefined;
+    for (const itemId of this.inventory(entityId)) {
+      const existing = this.items[itemId];
+      if (!existing || existing.protoId !== item.protoId || stackMax(existing) <= 1 || existing.components.activation) continue;
+      const existingQuantity = stackQuantity(existing);
+      const space = stackMax(existing) - existingQuantity;
+      if (space <= 0) continue;
+      const moved = Math.min(space, remaining);
+      existing.components.stacking.quantity = existingQuantity + moved;
+      remaining -= moved;
+      item.components.stacking.quantity = remaining;
+      lastMerged = existing;
+      if (remaining <= 0) return lastMerged;
+    }
+    return remaining <= 0 ? lastMerged : undefined;
   }
 
   tick(): void {
@@ -372,6 +409,19 @@ export class World {
       durationMs: 700,
     });
   }
+}
+
+function stackMax(item: ItemInstance): number {
+  return Math.max(1, Number(item.components.stacking?.max ?? 1));
+}
+
+function stackQuantity(item: ItemInstance): number {
+  return Math.max(1, Number(item.components.stacking?.quantity ?? 1));
+}
+
+function stackDisplaySuffix(item: ItemInstance): string {
+  const max = stackMax(item);
+  return max > 1 ? ` ×${stackQuantity(item)}` : "";
 }
 
 function collisionBox(components: JsonObj, position: { x: number; y: number }, defaultRadius: number): CollisionBox {

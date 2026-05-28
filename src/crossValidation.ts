@@ -168,15 +168,17 @@ function validateItems(
     const targeting = findNodeAtLocation(components, ["targeting"]);
     const teleporter = findNodeAtLocation(components, ["teleporter"]);
     const entitySpawner = findNodeAtLocation(components, ["entity_spawner"]);
+    const firearm = findNodeAtLocation(components, ["firearm"]);
+    const projectileLauncher = findNodeAtLocation(components, ["projectile_launcher"]);
     const targetingModeNode = targeting ? findNodeAtLocation(targeting, ["mode"]) : undefined;
     const targetingMode = targetingModeNode ? getNodeValue(targetingModeNode) : "self";
 
-    if (activation && !effectApplier && !damageApplier && !teleporter && !entitySpawner) {
+    if (activation && !effectApplier && !damageApplier && !teleporter && !entitySpawner && !firearm && !projectileLauncher) {
       markers.push(
         marker(
           parsed.model,
           activation,
-          `"${itemId}" 有 activation，但目前没有任何已知激活监听组件（effect_applier/damage_applier/teleporter/entity_spawner）。`,
+          `"${itemId}" 有 activation，但目前没有任何已知激活监听组件（effect_applier/damage_applier/teleporter/entity_spawner/firearm/projectile_launcher）。`,
           monaco.MarkerSeverity.Warning,
         ),
       );

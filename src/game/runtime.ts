@@ -1,5 +1,5 @@
 import { parse } from "jsonc-parser";
-import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, TeleportSystem } from "./systems";
+import { ActivationSystem, AttributeSystem, DamageApplierSystem, EffectApplierSystem, EffectSystem, EntitySpawnerSystem, FirearmSystem, ProjectileLauncherSystem, ProjectileSystem, TeleportSystem } from "./systems";
 import type { EffectSummary, Entity, GameRuntime, JsonObj } from "./types";
 import { effectColor, effectStackCount, summarizeTiming } from "./utils";
 import { World } from "./world";
@@ -15,20 +15,23 @@ export function createGameRuntime(effectText: string, itemText: string, entityTe
   createInitialObstacles(world);
 
   const activationSystem = new ActivationSystem(world);
+  const firearmSystem = new FirearmSystem(world);
   new EffectApplierSystem(world);
   new DamageApplierSystem(world);
+  new ProjectileLauncherSystem(world);
   new TeleportSystem(world);
   new EntitySpawnerSystem(world);
+  const projectileSystem = new ProjectileSystem(world);
   const effectSystem = new EffectSystem(world);
   const attributeSystem = new AttributeSystem(world);
-  world.systems.push(activationSystem, effectSystem);
+  world.systems.push(activationSystem, firearmSystem, projectileSystem, effectSystem);
 
-  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg", "impact-hammer"]) {
+  for (const protoId of ["adrenaline-injector", "regen-serum", "focus-coffee", "toxic-dart", "poison-cloud-grenade", "blink-device", "monster-egg", "impact-hammer", "basic-pistol", "toxic-nine-mm-round", "explosive-nine-mm-round", "nine-mm-round"]) {
     if (world.itemPrototypes[protoId]) world.give("player", protoId);
   }
   world.log("Canvas ECS MVP 已启动：按住 WASD/方向键自由移动，点击场景选择目标，数字键 1-9 使用物品；damage crate-1 15 impact 可破坏木箱。");
 
-  return { world, activationSystem, effectSystem, attributeSystem };
+  return { world, activationSystem, firearmSystem, effectSystem, attributeSystem };
 }
 
 export function getEffectSummaries(world: World, entity: Entity): EffectSummary[] {

@@ -149,9 +149,9 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
       chance: { type: "number", minimum: 0, maximum: 1, default: 1, description: "施加该效果的概率，取值 0~1；1 表示必定触发。" },
       target: {
         type: "string",
-        enum: ["self", "actor", "user", "activation_target", "@player", "@me", "@who", "@dummy"],
+        enum: ["self", "actor", "user", "activation_target", "impact_target", "impact_area", "@player", "@me", "@who", "@dummy"],
         default: "activation_target",
-        description: "效果施加目标：self=物品自身；actor/user=使用者；activation_target=本次激活选中的目标；@* 为调试或兼容别名。",
+        description: "效果施加目标：self=物品自身；actor/user=使用者；activation_target/impact_target=本次激活或投射物命中目标；impact_area=投射物命中范围。",
       },
       overrides: effectOverrideSchema,
     },
@@ -167,9 +167,9 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
       damageType: { type: "string", description: "伤害类型；会与目标 damageable.allowedDamageTypes / immuneDamageTypes 匹配。" },
       target: {
         type: "string",
-        enum: ["self", "actor", "user", "activation_target", "@player", "@me", "@who", "@dummy"],
+        enum: ["self", "actor", "user", "activation_target", "impact_target", "impact_area", "@player", "@me", "@who", "@dummy"],
         default: "activation_target",
-        description: "伤害目标：通常使用 activation_target。",
+        description: "伤害目标：activation_target 用于直接激活；impact_target/impact_area 用于投射物命中。",
       },
       radius: { type: "number", minimum: 0, description: "可选范围伤害半径，单位为世界坐标。" },
       areaRadius: { type: "number", minimum: 0, description: "radius 的兼容别名。" },
@@ -186,6 +186,7 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
       cooldownMs: { type: "integer", minimum: 0, description: "每次激活后的冷却时间，单位毫秒。" },
       castDurationMs: { type: "integer", minimum: 0, description: "激活前摇/施法耗时，单位毫秒；0 表示立即生效。" },
       consumeWhenDepleted: { type: "boolean", default: true, description: "充能耗尽后是否消耗或移除该物品。" },
+      consumeCharge: { type: "boolean", default: true, description: "每次激活是否扣除 charges；枪械等可设为 false，让弹药系统负责消耗。" },
     },
   };
 
@@ -197,6 +198,78 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
       mode: { type: "string", enum: ["self", "entity", "position"], description: "选择目标的方式：self=自身；entity=实体目标；position=位置目标。" },
       range: { type: "number", minimum: 0, description: "可选目标的最大距离或作用范围，单位由游戏逻辑定义。" },
       default: { type: "string", description: "未显式选择目标时使用的默认目标标识。" },
+    },
+  };
+
+  const projectileSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    description: "投射物飞行参数；枪械、弹药和投掷物都可复用。",
+    properties: {
+      speed: { type: "number", minimum: 0.1, description: "飞行速度，单位为世界坐标/秒。" },
+      maxDistance: { type: "number", minimum: 0.1, description: "最大飞行距离；到达后触发命中/爆炸。" },
+      pierce: { type: "integer", minimum: 0, description: "命中后还能继续穿透的目标数量。" },
+      radius: { type: "number", minimum: 0.01, description: "投射物碰撞半径。" },
+      color: { type: "string", description: "投射物显示颜色。" },
+      glyph: { type: "string", description: "投射物在 Canvas 上的显示字符。" },
+    },
+  };
+
+  const ammoSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ammoType"],
+    description: "弹药配置；弹药仍是普通可堆叠物品，可交易和丢弃。",
+    properties: {
+      ammoType: { type: "string", description: "弹药口径/类型；枪械通过 acceptedAmmoTypes 匹配。" },
+      damage: { type: "number", minimum: 0, description: "子弹基础伤害，会与枪械 damageBonus / damageMultiplier 叠加。" },
+      damageType: { type: "string", description: "子弹基础伤害类型。" },
+      areaRadius: { type: "number", minimum: 0, description: "命中后基础伤害的范围半径；0 表示只打命中目标。" },
+      impactRadius: { type: "number", minimum: 0, description: "命中效果的默认范围半径。" },
+      projectile: projectileSchema,
+      damage_applier: { oneOf: [damageApplierSchema, { type: "array", items: damageApplierSchema }], description: "子弹命中时追加的伤害段。" },
+      effect_applier: { oneOf: [effectApplierSchema, { type: "array", items: effectApplierSchema }], description: "子弹命中时施加的效果。" },
+    },
+  };
+
+  const firearmSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: true,
+    required: ["acceptedAmmoTypes", "magazineSize", "reloadDurationMs"],
+    description: "枪械配置；弹匣状态会写入该组件运行时字段。",
+    properties: {
+      acceptedAmmoTypes: { type: "array", items: { type: "string" }, description: "可装填的弹药类型列表。" },
+      magazineSize: { type: "integer", minimum: 1, description: "弹匣容量。" },
+      reloadDurationMs: { type: "integer", minimum: 0, description: "装填耗时，单位毫秒。" },
+      partialReload: { type: "boolean", default: true, description: "是否允许半弹匣补装；当前实现会补满缺口，不清空已有弹药。" },
+      allowMixedMagazine: { type: "boolean", default: true, description: "是否允许弹匣内混装不同弹种。" },
+      damageBonus: { type: "number", description: "枪械提供的固定伤害加成。" },
+      damageMultiplier: { type: "number", description: "枪械最终伤害倍率；1 表示不变。" },
+      projectileSpeed: { type: "number", minimum: 0.1, description: "默认投射物速度，可被弹药 projectile.speed 覆盖。" },
+      maxDistance: { type: "number", minimum: 0.1, description: "默认最大射程，可被弹药 projectile.maxDistance 覆盖。" },
+      pierce: { type: "integer", minimum: 0, description: "默认穿透数量，可被弹药 projectile.pierce 覆盖。" },
+      spreadDeg: { type: "number", minimum: 0, description: "预留：散布角度，单位度。" },
+      projectileColor: { type: "string", description: "枪械发射投射物默认颜色。" },
+      projectileGlyph: { type: "string", description: "枪械发射投射物默认字符。" },
+      loadedRounds: { type: "array", items: { type: "object", additionalProperties: true }, description: "运行时弹匣内容，每发记录 ammo payload；原型中通常留空。" },
+    },
+  };
+
+  const projectileLauncherSchema: JSONSchema7 = {
+    type: "object",
+    additionalProperties: false,
+    description: "通用投射物发射器；用于毒镖、手雷、燃烧瓶等非枪械物品。",
+    properties: {
+      speed: { type: "number", minimum: 0.1, description: "投射物速度。" },
+      maxDistance: { type: "number", minimum: 0.1, description: "最大飞行距离。" },
+      pierce: { type: "integer", minimum: 0, description: "穿透目标数量。" },
+      radius: { type: "number", minimum: 0.01, description: "投射物碰撞半径。" },
+      impactRadius: { type: "number", minimum: 0, description: "命中后默认范围半径。" },
+      color: { type: "string", description: "投射物颜色。" },
+      glyph: { type: "string", description: "投射物显示字符。" },
+      projectile: projectileSchema,
+      damage_applier: { oneOf: [damageApplierSchema, { type: "array", items: damageApplierSchema }], description: "命中时造成的伤害；不填则复用物品根 damage_applier。" },
+      effect_applier: { oneOf: [effectApplierSchema, { type: "array", items: effectApplierSchema }], description: "命中时施加的效果；不填则复用物品根 effect_applier。" },
     },
   };
 
@@ -222,6 +295,8 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
         description: "物品堆叠规则，控制同类物品在背包或容器中的合并数量。",
         properties: {
           max: { type: "integer", minimum: 1, description: "单个堆叠槽允许的最大数量。" },
+          quantity: { type: "integer", minimum: 1, description: "运行时/测试用当前堆叠数量；原型中可用于设置初始给与数量。" },
+          initialQuantity: { type: "integer", minimum: 1, description: "创建物品实例时的初始堆叠数量；不填默认为 1。" },
         },
       },
       economy: {
@@ -257,6 +332,9 @@ export function createItemSchema(effectIds: readonly string[], entityIds: readon
         description: "激活时造成即时伤害；可填写单个 damage_applier，或数组表示多段/多类型伤害。",
         oneOf: [damageApplierSchema, { type: "array", items: damageApplierSchema, description: "多个伤害施加器列表。" }],
       },
+      ammo: ammoSchema,
+      firearm: firearmSchema,
+      projectile_launcher: projectileLauncherSchema,
       activation: { ...activationSchema, description: "物品可主动使用时的激活、充能与冷却配置。" },
       teleporter: {
         type: "object",

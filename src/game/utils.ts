@@ -17,6 +17,10 @@ const ITEM_ICON_FALLBACKS: Record<string, string> = {
   "blink-device": "⚡",
   "monster-egg": "🥚",
   "impact-hammer": "🔨",
+  "basic-pistol": "🔫",
+  "nine-mm-round": "📦",
+  "toxic-nine-mm-round": "🟢",
+  "explosive-nine-mm-round": "💥",
 };
 
 export function deepClone<T>(value: T): T {
@@ -71,6 +75,17 @@ export function initEntityRuntimeState(entity: { components: JsonObj }): void {
 }
 
 export function initItemRuntimeState(item: ItemInstance): void {
+  const stacking = item.components.stacking;
+  if (stacking) {
+    const max = Math.max(1, Number(stacking.max ?? 1));
+    const quantity = Math.max(1, Math.min(max, Number(stacking.quantity ?? stacking.initialQuantity ?? 1)));
+    stacking.max = max;
+    stacking.quantity = quantity;
+  }
+
+  const firearm = item.components.firearm;
+  if (firearm) firearm.loadedRounds ??= [];
+
   const activation = item.components.activation;
   if (!activation) return;
   const maxCharges = activation.maxCharges ?? activation.max ?? activation.charges ?? 1;

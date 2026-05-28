@@ -48,6 +48,7 @@ const COMMAND_SUGGESTIONS: CommandSuggestion[] = [
   { label: "component", insert: 'component slime ai {"state":"patrol","range":5}', description: "给实体写入/覆盖自定义 component" },
   { label: "item", insert: 'item @player debug-potion {"display":{"name":"调试药水"},"targeting":{"mode":"self"},"activation":{"max":3},"effect_applier":[{"kind":"regeneration","target":"self"}]}', description: "创建自定义 component 物品并放入背包" },
   { label: "give", insert: "give @player poison-cloud-grenade", description: "给予已有 item.jsonc 物品" },
+  { label: "reload", insert: "reload @player 9", description: "装填指定物品槽位的枪械" },
   { label: "apply", insert: "apply poison @dummy", description: "直接对实体施加 effect" },
   { label: "damage", insert: "damage crate-1 15 impact", description: "造成指定类型伤害；木箱只接受 impact/fire" },
   { label: "heal", insert: "heal @player 100", description: "恢复生命" },
@@ -459,8 +460,9 @@ function EffectList({ effects }: { effects: EffectSummary[] }) {
 function InventoryRow({ index, item, world, onUse }: { index: number; item: ItemInstance; world: World; onUse: () => void }) {
   const activation = item.components.activation;
   const cooldown = cooldownRemainingMs(item, world);
-  const charges = activation ? `${activation.charges}/${activation.maxCharges}` : "-";
-  const disabled = !activation || cooldown > 0 || Number(activation.charges ?? 0) <= 0;
+  const charges = activation ? (activation.consumeCharge === false ? "∞" : `${activation.charges}/${activation.maxCharges}`) : "-";
+  const stackText = item.components.stacking?.max > 1 ? `数量 ${item.components.stacking.quantity}/${item.components.stacking.max}` : undefined;
+  const disabled = !activation || cooldown > 0 || (activation.consumeCharge !== false && Number(activation.charges ?? 0) <= 0);
   const targetMode = item.components.targeting?.mode ?? "self";
   return (
     <article className="inventory-row">
@@ -470,6 +472,7 @@ function InventoryRow({ index, item, world, onUse }: { index: number; item: Item
         <div className="row between"><strong>{displayItemName(item)}</strong><span className="muted">{targetMode}</span></div>
         <p>{interpolateItemText(item.components.display?.description ?? item.protoId, item)}</p>
         <div className="item-meta">
+          {stackText && <span>{stackText}</span>}
           <span>次数 {charges}</span>
           <span>CD {cooldown > 0 ? formatMs(cooldown) : "就绪"}</span>
           <span>施法 {formatMs(Number(activation?.castDurationMs ?? 0))}</span>
