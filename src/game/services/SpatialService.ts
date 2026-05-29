@@ -18,6 +18,32 @@ export interface CollisionBox {
 export class SpatialService {
   constructor(private readonly world: World) {}
 
+  /**
+   * 延迟补偿回溯上下文（docs/networking.md §4.3）：激活时，positionOf 返回历史位置。
+   * 仅命中判定的「选目标」阶段使用；伤害仍按实体 id 作用于当前状态。
+   */
+  private rewindPositions?: Map<string, { x: number; y: number }>;
+
+  /** 进入回溯：命中判定期间把目标位置替换为某历史 tick 的位置。 */
+  beginRewind(positions: Map<string, { x: number; y: number }>): void {
+    this.rewindPositions = positions;
+  }
+
+  /** 退出回溯，恢复读取当前权威位置。 */
+  endRewind(): void {
+    this.rewindPositions = undefined;
+  }
+
+  /**
+   * 实体的「判定位置」：回溯激活时返回历史位置，否则返回当前权威位置。
+   * 命中检测（findProjectileHit / resolveAreaTargets）一律经此读取，
+   * 从而在不改动权威状态的前提下实现延迟补偿。
+   */
+  positionOf(entity: Entity): { x: number; y: number } | undefined {
+    const rewound = this.rewindPositions?.get(entity.entityId);
+    return rewound ?? entity.components.position;
+  }
+
   isInside(x: number, y: number, radius = 0): boolean {
     return x >= radius && y >= radius && x <= this.world.width - radius && y <= this.world.height - radius;
   }

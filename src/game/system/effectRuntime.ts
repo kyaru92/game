@@ -59,10 +59,10 @@ export function applyPeriodicChange(world: World, entity: Entity, definition: Ef
     resources[attr] = Number.isInteger(after) ? Math.trunc(after) : Number(after.toFixed(2));
     const delta = Number(resources[attr]) - before;
     const sign = delta >= 0 ? "+" : "";
-    const color = delta >= 0 ? "#4ade80" : "#fb7185";
     const deltaText = Number.isInteger(delta) ? String(delta) : delta.toFixed(2);
     world.log(`${entity.name} 受到 ${effectName} 周期效果：${attr} ${sign}${deltaText} -> ${resources[attr]}`);
-    world.services.vfx.addFloatingText(entity.entityId, `${sign}${deltaText} ${attr}`, color);
+    const position = entity.components.position ?? { x: 0, y: 0 };
+    world.emitSim({ type: "periodicTick", entityId: entity.entityId, x: position.x, y: position.y, attr, delta });
     return;
   }
 

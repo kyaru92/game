@@ -15,7 +15,7 @@ export class EffectApplierSystem {
     const appliers = normalizeArray(item.components.effect_applier);
     for (const applier of appliers) {
       const chance = Number(applier.chance ?? 1);
-      if (Math.random() > chance) {
+      if (!this.world.rng.chance(chance)) {
         this.world.log(`效果 ${applier.kind} 未触发。`);
         continue;
       }

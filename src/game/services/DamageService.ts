@@ -36,7 +36,8 @@ export class DamageService {
     const delta = before - Number(resources.hp);
     if (delta <= 0) return false;
 
-    this.world.services.vfx.addFloatingText(entityId, `-${formatNumber(delta)} hp`, "#fb7185");
+    const position = entity.components.position ?? { x: 0, y: 0 };
+    this.world.emitSim({ type: "damaged", entityId, x: position.x, y: position.y, amount: delta, damageType: normalizedType });
     this.world.log(`${entity.name} 受到 ${sourceName}：${normalizedType} ${formatNumber(delta)}，hp ${formatNumber(before)} -> ${formatNumber(resources.hp)}。`);
     return true;
   }

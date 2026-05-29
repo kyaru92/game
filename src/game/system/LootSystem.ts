@@ -1,6 +1,7 @@
 import type { LootComponent, LootContainerRuntime, LootEntry, LootGuaranteeEntry } from "../../domain/componentTypes";
 import type { Entity, EventData, ItemInstance } from "../types";
 import type { World } from "../world";
+import type { SeededRng } from "../rng";
 import { displayItemName, itemCategory } from "../utils";
 
 const DEFAULT_CONTAINER_PROTO_ID = "loot-crate";
@@ -120,7 +121,7 @@ export class LootSystem {
       return this.startSearchNext(actorId, containerId);
     }
 
-    const durationMs = searchDurationMs(item);
+    const durationMs = searchDurationMs(this.world, item);
     const now = this.world.nowMs();
     container.currentSearch = {
       actorId,
@@ -199,7 +200,7 @@ export class LootSystem {
     if (!loot) return;
 
     const spawnChance = clamp01(Number(loot.spawnChance ?? 1));
-    if (Math.random() > spawnChance) return;
+    if (!this.world.rng.chance(spawnChance)) return;
 
     const position = event.data.position;
     if (!position) return;
@@ -231,8 +232,7 @@ export class LootSystem {
     if (!runtime) return;
 
     runtime.hiddenItemIds = generated.map((entry) => this.createLootItem(entry).instanceId);
-    this.world.services.vfx.addBurst(container.entityId, String(container.components.display?.color ?? "#f59e0b"));
-    this.world.services.vfx.addFloatingText(container.entityId, "掉落箱", "#facc15");
+    this.world.emitSim({ type: "lootDropped", entityId: container.entityId, x: spawnPosition.x, y: spawnPosition.y, color: String(container.components.display?.color ?? "#f59e0b") });
     this.world.log(`${entity.name} 掉落了一个箱子。`);
   }
 
@@ -267,7 +267,7 @@ export class LootSystem {
   private rollLoot(loot: LootComponent): GeneratedLoot[] {
     const generated: GeneratedLoot[] = [];
     for (const entry of loot.entries ?? []) {
-      if (Math.random() > clamp01(Number(entry.chance ?? 1))) continue;
+      if (!this.world.rng.chance(clamp01(Number(entry.chance ?? 1)))) continue;
       generated.push(this.generatedLoot(entry));
     }
 
@@ -275,7 +275,7 @@ export class LootSystem {
     const minItems = Math.max(1, Math.floor(Number(guarantee?.minItems ?? 1)));
     const pool = guarantee?.pool ?? [];
     while (generated.length < minItems && pool.length) {
-      const picked = weightedPick(pool);
+      const picked = weightedPick(this.world.rng, pool);
       if (!picked) break;
       generated.push(this.generatedLoot(picked));
     }
@@ -285,7 +285,7 @@ export class LootSystem {
   private generatedLoot(entry: LootEntry | LootGuaranteeEntry): GeneratedLoot {
     return {
       protoId: entry.item,
-      quantity: rollQuantity(entry.quantity),
+      quantity: rollQuantity(this.world.rng, entry.quantity),
     };
   }
 
@@ -347,25 +347,25 @@ function interactionRange(entity: Entity): number {
   return Math.max(0, Number(entity.components.interactable?.range ?? DEFAULT_INTERACTION_RANGE));
 }
 
-function searchDurationMs(item: ItemInstance): number {
+function searchDurationMs(world: World, item: ItemInstance): number {
   const configured = Number(item.components.searchable?.searchDurationMs ?? DEFAULT_SEARCH_DURATION_MS);
   const base = Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_SEARCH_DURATION_MS;
-  const factor = SEARCH_DURATION_RANDOM_MIN + Math.random() * (SEARCH_DURATION_RANDOM_MAX - SEARCH_DURATION_RANDOM_MIN);
+  const factor = world.rng.float(SEARCH_DURATION_RANDOM_MIN, SEARCH_DURATION_RANDOM_MAX);
   return Math.max(0, Math.round(base * factor));
 }
 
-function rollQuantity(quantity: LootEntry["quantity"] | LootGuaranteeEntry["quantity"]): number | undefined {
+function rollQuantity(rng: SeededRng, quantity: LootEntry["quantity"] | LootGuaranteeEntry["quantity"]): number | undefined {
   if (!quantity) return undefined;
   const min = Math.max(1, Math.floor(Number(quantity.min ?? 1)));
   const max = Math.max(min, Math.floor(Number(quantity.max ?? min)));
-  return min + Math.floor(Math.random() * (max - min + 1));
+  return rng.int(min, max);
 }
 
-function weightedPick<T extends { weight?: number }>(items: readonly T[]): T | undefined {
+function weightedPick<T extends { weight?: number }>(rng: SeededRng, items: readonly T[]): T | undefined {
   const weighted = items.map((item) => ({ item, weight: Math.max(0, Number(item.weight ?? 0)) })).filter((entry) => entry.weight > 0);
   const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   if (total <= 0) return undefined;
-  let roll = Math.random() * total;
+  let roll = rng.next() * total;
   for (const entry of weighted) {
     roll -= entry.weight;
     if (roll <= 0) return entry.item;

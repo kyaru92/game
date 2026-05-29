@@ -118,7 +118,7 @@ function spawnEntity(runtime: GameRuntime, raw: string, tokens: string[]): void 
     throw new Error("生成位置被占用或碰撞箱超出地图");
   }
   const position = entity.components.position ?? { x, y };
-  world.services.vfx.addBurst(entity.entityId, String(entity.components.display?.color ?? "#38bdf8"));
+  world.emitSim({ type: "spawned", entityId: entity.entityId, x: position.x, y: position.y, name: entity.name, color: String(entity.components.display?.color ?? "#38bdf8") });
   world.log(`生成实体：${entity.entityId} / ${entity.name} <${protoId}> @(${formatCoord(position.x)},${formatCoord(position.y)})。`);
 }
 
@@ -217,7 +217,8 @@ function changeHp(runtime: GameRuntime, tokens: string[], sign: 1 | -1): void {
   resources.hp = Math.max(0, Math.min(maxHp, before + sign * amount));
   if (resources.hp > 0) delete entity.components._deathLogged;
   const delta = Number(resources.hp) - before;
-  world.services.vfx.addFloatingText(entityId, `${delta >= 0 ? "+" : ""}${delta} hp`, delta >= 0 ? "#4ade80" : "#fb7185");
+  const position = entity.components.position ?? { x: 0, y: 0 };
+  world.emitSim({ type: "periodicTick", entityId, x: position.x, y: position.y, attr: "hp", delta });
   world.log(`${entity.name} hp ${before} -> ${resources.hp}`);
 }
 

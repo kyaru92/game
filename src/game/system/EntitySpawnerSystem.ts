@@ -42,8 +42,7 @@ export class EntitySpawnerSystem {
       overrides: (spawner.overrides ?? {}) as DeepPartial<EntityRuntimeComponents>,
     });
     const color = String(spawner.color ?? entity.components.display?.color ?? "#fb923c");
-    this.world.services.vfx.addBurst(entity.entityId, color);
-    this.world.services.vfx.addFloatingText(entity.entityId, entity.name, color);
+    this.world.emitSim({ type: "spawned", entityId: entity.entityId, x, y, name: entity.name, color });
     this.world.log(`${this.world.entityName(event.data.actorId)} 使用 ${displayItemName(item)}，在 (${x},${y}) 生成 ${entity.name}。`);
   }
 }

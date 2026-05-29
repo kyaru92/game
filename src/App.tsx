@@ -17,7 +17,13 @@ import {
   itemCategory,
   itemIcon,
   targetForItem,
+  PresentationState,
+  PresentationDeriver,
+  LoopbackTransport,
+  ServerSession,
+  ClientSession,
   type EffectSummary,
+  type GameCommand,
   type LootContainerView,
   type Entity,
   type GameRuntime,
@@ -62,7 +68,25 @@ function formatError(error: unknown): string {
 }
 
 export default function App() {
-  const runtime = useMemo<GameRuntime>(() => createGameRuntime(effectText, itemText, entityText), []);
+  // 网络栈（docs/networking.md §4.3）：同进程 loopback 跑通「预测 → 权威 → 快照 → 校正」。
+  // - serverRuntime：唯一权威世界（跑全部 system）。
+  // - clientRuntime：客户端预测世界（仅预测本地移动；每 tick 被服务端快照同步 = 权威视图）。
+  // UI/渲染一律读 clientRuntime；调试 DSL / 补给直给作用到 serverRuntime。
+  const net = useMemo(() => {
+    const serverRuntime = createGameRuntime(effectText, itemText, entityText);
+    const clientRuntime = createGameRuntime(effectText, itemText, entityText);
+    const transport = new LoopbackTransport(0);
+    const server = new ServerSession(serverRuntime, transport.server);
+    const presentation = new PresentationState();
+    const deriver = new PresentationDeriver(presentation);
+    const client = new ClientSession(clientRuntime, transport.client, deriver);
+    // 丢弃客户端启动日志：权威启动日志由服务端首帧快照的事件流带来，避免重复。
+    clientRuntime.world.drainSimEvents();
+    return { serverRuntime, clientRuntime, transport, server, client, presentation, deriver };
+  }, []);
+  const runtime: GameRuntime = net.clientRuntime;
+  const serverRuntime: GameRuntime = net.serverRuntime;
+  const presentation = net.presentation;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandHistoryRef = useRef<string[]>([]);
@@ -180,6 +204,13 @@ export default function App() {
     }
   }, [applyCommandSuggestion, commandLine, filteredSuggestions, navigateCommandHistory, showSuggestions, suggestionIndex]);
 
+  // 玩家本地命令的统一入口：经客户端会话「本地预测（仅 move）+ 上行发送」。
+  // 其余命令仅上行，由服务端权威结算后随快照回灌。
+  const dispatch = useCallback((command: GameCommand) => {
+    net.client.send(command);
+    refreshUi();
+  }, [net, refreshUi]);
+
   const useItem = useCallback((itemId: string) => {
     const item = runtime.world.items[itemId];
     if (!item || !runtime.world.services.inventory.has("player", itemId)) {
@@ -193,9 +224,8 @@ export default function App() {
       cursorPosition: cursorPositionRef.current,
       requireExplicitEntity: true,
     });
-    runtime.activationSystem.startUseItem("player", itemId, target);
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "useItem", itemId, target });
+  }, [dispatch, refreshUi, runtime]);
 
   const equipItem = useCallback((itemId: string) => {
     const item = runtime.world.items[itemId];
@@ -204,9 +234,8 @@ export default function App() {
       refreshUi();
       return;
     }
-    if (runtime.world.services.inventory.equipItem("player", itemId)) runtime.world.log(`切换装备：${displayItemName(item)}。`);
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "equipItem", itemId });
+  }, [dispatch, refreshUi, runtime]);
 
   const activateHotbarSlot = useCallback((slotIndex: number) => {
     const itemId = runtime.world.services.inventory.hotbar("player")[slotIndex];
@@ -225,11 +254,8 @@ export default function App() {
   }, [equipItem, refreshUi, runtime, useItem]);
 
   const assignHotbarSlot = useCallback((slotIndex: number, itemId: string) => {
-    if (runtime.world.services.inventory.setHotbarSlot("player", slotIndex, itemId)) {
-      runtime.world.log(`${displayItemName(runtime.world.items[itemId])} 放入快捷栏 ${slotIndex + 1}。`);
-    }
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "assignHotbarSlot", slot: slotIndex, itemId });
+  }, [dispatch]);
 
   const reloadActiveEquipment = useCallback(() => {
     const itemId = runtime.world.services.inventory.activeItemId("player");
@@ -238,26 +264,22 @@ export default function App() {
       refreshUi();
       return;
     }
-    runtime.firearmSystem.reloadItem("player", itemId);
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "reloadItem", itemId });
+  }, [dispatch, refreshUi, runtime]);
 
   const cancelCasting = useCallback(() => {
-    runtime.activationSystem.cancel("player");
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "cancelCast" });
+  }, [dispatch]);
 
   const closeLootContainer = useCallback(() => {
-    runtime.lootSystem.cancelSearch("player", openLootContainerId ?? undefined, "中断搜索");
+    dispatch({ kind: "lootCancelSearch", containerId: openLootContainerId ?? undefined, reason: "中断搜索" });
     setOpenLootContainerId(null);
-    refreshUi();
-  }, [openLootContainerId, refreshUi, runtime]);
+  }, [dispatch, openLootContainerId]);
 
   const openLootContainer = useCallback((containerId: string) => {
     setOpenLootContainerId(containerId);
-    runtime.lootSystem.beginAutoSearch("player", containerId);
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "lootBeginSearch", containerId });
+  }, [dispatch]);
 
   const interactLootContainer = useCallback(() => {
     const nearest = runtime.lootSystem.nearestContainer("player");
@@ -271,19 +293,18 @@ export default function App() {
 
   const takeLootItem = useCallback((itemId: string) => {
     if (!openLootContainerId) return;
-    runtime.lootSystem.takeRevealedItem("player", openLootContainerId, itemId);
-    refreshUi();
-  }, [openLootContainerId, refreshUi, runtime]);
+    dispatch({ kind: "lootTakeItem", containerId: openLootContainerId, itemId });
+  }, [dispatch, openLootContainerId]);
 
   const organizeBackpack = useCallback(() => {
-    runtime.world.services.inventory.organize("player");
-    refreshUi();
-  }, [refreshUi, runtime]);
+    dispatch({ kind: "organizeInventory" });
+  }, [dispatch]);
 
+  // 补给直给是管理通道：作用到权威（服务端）世界，结果随快照回灌客户端。
   const giveItem = useCallback((protoId: string) => {
-    runtime.world.give("player", protoId);
+    serverRuntime.world.give("player", protoId);
     refreshUi();
-  }, [refreshUi, runtime]);
+  }, [refreshUi, serverRuntime]);
 
   const submitCommand = useCallback(() => {
     const line = commandLine.trim();
@@ -291,15 +312,16 @@ export default function App() {
     pushCommandHistory(line);
     shouldStickLogRef.current = true;
 
-    const world = runtime.world;
+    // 调试 DSL 是独立管理通道（docs/networking.md §3.4）：作用到权威（服务端）世界，
+    // 结果经事件流/快照回灌客户端。
+    const world = serverRuntime.world;
     const originalLog = world.log;
     const resultMessages: string[] = [];
     world.log = (message: string) => {
       resultMessages.push(message);
     };
     try {
-      executeCommand(runtime, line);
-      runtime.world.tick();
+      executeCommand(serverRuntime, line);
     } catch (error) {
       resultMessages.push(`指令执行失败：${formatError(error)}`);
     } finally {
@@ -313,7 +335,7 @@ export default function App() {
     commandDraftRef.current = "";
     setSuggestionIndex(0);
     refreshUi();
-  }, [commandLine, pushCommandHistory, refreshUi, runtime]);
+  }, [commandLine, pushCommandHistory, refreshUi, serverRuntime]);
 
   useEffect(() => {
     setSuggestionIndex(0);
@@ -333,13 +355,39 @@ export default function App() {
     let frame = 0;
     let lastUiAt = 0;
     let lastFrameAt = performance.now();
+    const tickIntervalMs = runtime.world.tickIntervalMs;
+    const maxCatchUpTicks = 5; // 防止掉帧后螺旋补帧
+    let accumulatorMs = 0;
     const loop = (time: number) => {
-      const deltaSeconds = Math.min(0.05, Math.max(0, (time - lastFrameAt) / 1000));
+      const frameMs = Math.min(250, Math.max(0, time - lastFrameAt));
       lastFrameAt = time;
-      if (!runtime.lootSystem.isActorSearching("player")) updatePlayerFreeMovement(runtime, movementKeysRef.current, deltaSeconds);
-      runtime.world.tick();
+      accumulatorMs += frameMs;
+
+      let ticksThisFrame = 0;
+      while (accumulatorMs >= tickIntervalMs && ticksThisFrame < maxCatchUpTicks) {
+        // 本地移动：产出 move 命令经客户端会话（本地预测 + 上行）。
+        if (!runtime.lootSystem.isActorSearching("player")) {
+          const dir = movementDirFromKeys(movementKeysRef.current);
+          if (dir.x !== 0 || dir.y !== 0) net.client.send({ kind: "move", dir });
+        }
+        // 服务端推进一个权威 tick：消费上行命令 → tick → 下发快照；
+        // loopback 即时回灌客户端，在 onServerMessage 内 applySnapshot + 回滚重放 + 派生表现。
+        net.server.step();
+        net.transport.advance(net.serverRuntime.world.currentTick); // 驱动延迟队列（latency=0 时无副作用）
+        accumulatorMs -= tickIntervalMs;
+        ticksThisFrame += 1;
+      }
+      // 超出补帧上限时丢弃积欠，避免恢复后一次性快进。
+      if (ticksThisFrame >= maxCatchUpTicks) accumulatorMs = 0;
+
+      // 客户端本地（UI 校验等）产生的事件单独派生；服务端权威事件已在收快照时派生。
+      net.deriver.consume(runtime.world.drainSimEvents(), runtime.world.nowMs());
+      net.deriver.age(runtime.world.nowMs());
+
       resizeCanvas(canvas);
-      drawWorld(context, runtime, selectedTargetRef.current);
+      // alpha：距下一 tick 的进度，供远端实体在最近两帧快照间平滑插值。
+      const alpha = Math.max(0, Math.min(1, accumulatorMs / tickIntervalMs));
+      drawWorld(context, runtime, selectedTargetRef.current, presentation, net.client, alpha);
       if (time - lastUiAt > 120) {
         lastUiAt = time;
         forceRender((value) => value + 1);
@@ -348,7 +396,7 @@ export default function App() {
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [runtime]);
+  }, [net, runtime, presentation]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -360,9 +408,7 @@ export default function App() {
 
       if ((key === "c" || key === "escape") && searchingLoot) {
         event.preventDefault();
-        runtime.lootSystem.cancelSearch("player", openLootContainerId ?? undefined, "中断搜索");
-        setOpenLootContainerId(null);
-        refreshUi();
+        closeLootContainer();
         return;
       }
 
@@ -470,8 +516,7 @@ export default function App() {
         cursorPosition: [point.x, point.y],
         requireExplicitEntity: true,
       });
-      runtime.activationSystem.startUseItem("player", activeItem.instanceId, target);
-      refreshUi();
+      dispatch({ kind: "useItem", itemId: activeItem.instanceId, target });
       return;
     }
 
@@ -479,15 +524,15 @@ export default function App() {
     setSelectedTarget(target);
     runtime.world.log(`选择目标：${describeTarget(runtime.world, target)}`);
     refreshUi();
-  }, [openLootContainer, refreshUi, runtime, setSelectedTarget]);
+  }, [dispatch, openLootContainer, refreshUi, runtime, setSelectedTarget]);
 
   useEffect(() => {
     if (!openLootContainerId) return;
     if (runtime.world.entities[openLootContainerId] && runtime.lootSystem.canInteract("player", openLootContainerId)) return;
-    runtime.lootSystem.cancelSearch("player", openLootContainerId, "离开箱子范围");
+    net.client.send({ kind: "lootCancelSearch", containerId: openLootContainerId, reason: "离开箱子范围" });
     setOpenLootContainerId(null);
     refreshUi();
-  }, [openLootContainerId, refreshUi, runtime]);
+  }, [net, openLootContainerId, refreshUi, runtime]);
 
   const world = runtime.world;
   const player = world.entities.player;
@@ -666,7 +711,7 @@ export default function App() {
             shouldStickLogRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 10;
           }}
         >
-          {world.messages.slice(-40).map((message, index) => <LogEntry key={`${index}-${message}`} message={message} />)}
+          {presentation.messages.slice(-40).map((message, index) => <LogEntry key={`${index}-${message}`} message={message} />)}
         </div>
       </section>
     </main>
@@ -915,8 +960,7 @@ const MOVEMENT_VECTORS: Record<string, WorldPoint> = {
   d: { x: 1, y: 0 },
 };
 
-function updatePlayerFreeMovement(runtime: GameRuntime, pressedKeys: Set<string>, deltaSeconds: number): void {
-  if (deltaSeconds <= 0) return;
+function movementDirFromKeys(pressedKeys: Set<string>): { x: number; y: number } {
   let x = 0;
   let y = 0;
   for (const key of pressedKeys) {
@@ -925,21 +969,7 @@ function updatePlayerFreeMovement(runtime: GameRuntime, pressedKeys: Set<string>
     x += vector.x;
     y += vector.y;
   }
-  const length = Math.hypot(x, y);
-  if (length <= 0) return;
-
-  const player = runtime.world.entities.player;
-  if (!player) return;
-  const attrs = runtime.attributeSystem.finalAttributes(player);
-  const unitsPerSecond = Math.max(0, Number(attrs.move_speed ?? 100)) / 25;
-  if (unitsPerSecond <= 0) return;
-
-  runtime.world.services.spatial.tryMove(
-    "player",
-    (x / length) * unitsPerSecond * deltaSeconds,
-    (y / length) * unitsPerSecond * deltaSeconds,
-    { logFailure: false },
-  );
+  return { x, y };
 }
 
 function describeEffectMechanics(effect: EffectSummary): string {
@@ -993,7 +1023,7 @@ function eventToWorldPoint(canvas: HTMLCanvasElement, clientX: number, clientY: 
   return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
 }
 
-function drawWorld(context: CanvasRenderingContext2D, runtime: GameRuntime, selectedTarget: Target): void {
+function drawWorld(context: CanvasRenderingContext2D, runtime: GameRuntime, selectedTarget: Target, presentation: PresentationState, client: ClientSession, alpha: number): void {
   const canvas = context.canvas;
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -1006,8 +1036,12 @@ function drawWorld(context: CanvasRenderingContext2D, runtime: GameRuntime, sele
   context.fillRect(0, 0, rect.width, rect.height);
   drawGround(context, layout);
   drawSelection(context, world, layout, selectedTarget);
-  drawVisualEvents(context, world, layout);
-  for (const entity of Object.values(world.entities)) drawEntity(context, runtime, entity, layout);
+  drawVisualEvents(context, presentation, layout, world.nowMs());
+  for (const entity of Object.values(world.entities)) {
+    // 本地玩家用预测位置；远端实体用最近两帧快照插值，避免 30Hz tick 下的卡顿。
+    const renderPosition = client.interpolatedPosition(entity.entityId, alpha) ?? entity.components.position;
+    drawEntity(context, runtime, entity, layout, renderPosition);
+  }
   drawLegend(context, rect.width, rect.height);
 }
 
@@ -1079,9 +1113,9 @@ function drawSelection(context: CanvasRenderingContext2D, world: World, layout: 
   context.restore();
 }
 
-function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, entity: Entity, layout: CanvasLayout): void {
+function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, entity: Entity, layout: CanvasLayout, renderPosition?: { x: number; y: number }): void {
   const world = runtime.world;
-  const position = entity.components.position ?? { x: 0, y: 0 };
+  const position = renderPosition ?? entity.components.position ?? { x: 0, y: 0 };
   const center = worldToCanvas(layout, position.x, position.y);
   const bounds = world.services.spatial.entityBounds(entity);
   const bodyWidth = Math.max(24, bounds.width * layout.scale);
@@ -1123,7 +1157,7 @@ function drawEntity(context: CanvasRenderingContext2D, runtime: GameRuntime, ent
   context.fillText(String(display?.glyph ?? (isPlayer ? "P" : "?")), center.x, center.y + 1);
 
   drawHealthBar(context, entity, center.x, center.y - visualRadius - 14, Math.max(44, bodyWidth));
-  drawCastingRing(context, entity, center, visualRadius + 2);
+  drawCastingRing(context, entity, center, visualRadius + 2, now);
   drawEffectChips(context, summaries, center.x, center.y + visualRadius + 10, Math.max(48, visualRadius * 3));
 
   context.fillStyle = "#cbd5e1";
@@ -1147,10 +1181,9 @@ function drawHealthBar(context: CanvasRenderingContext2D, entity: Entity, x: num
   context.fill();
 }
 
-function drawCastingRing(context: CanvasRenderingContext2D, entity: Entity, center: { x: number; y: number }, radius: number): void {
+function drawCastingRing(context: CanvasRenderingContext2D, entity: Entity, center: { x: number; y: number }, radius: number, now: number): void {
   const casting = entity.components.casting;
   if (!casting) return;
-  const now = performance.now();
   const total = Math.max(1, casting.finishAtMs - casting.startedAtMs);
   const progress = 1 - Math.max(0, casting.finishAtMs - now) / total;
   context.strokeStyle = "#60a5fa";
@@ -1179,9 +1212,8 @@ function drawEffectChips(context: CanvasRenderingContext2D, effects: EffectSumma
   });
 }
 
-function drawVisualEvents(context: CanvasRenderingContext2D, world: World, layout: CanvasLayout): void {
-  const now = world.nowMs();
-  for (const event of world.visualEvents) {
+function drawVisualEvents(context: CanvasRenderingContext2D, presentation: PresentationState, layout: CanvasLayout, now: number): void {
+  for (const event of presentation.visualEvents) {
     const age = now - event.createdAtMs;
     const t = Math.max(0, Math.min(1, age / event.durationMs));
     const center = worldToCanvas(layout, event.x, event.y);

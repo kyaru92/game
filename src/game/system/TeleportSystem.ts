@@ -28,7 +28,7 @@ export class TeleportSystem {
       return;
     }
     actor.components.position = { x: roundCoord(x), y: roundCoord(y) };
-    this.world.services.vfx.addTeleportTrail([from.x, from.y], [x, y]);
+    this.world.emitSim({ type: "teleported", from: [from.x, from.y], to: [x, y] });
     this.world.log(`${actor.name} 闪现到 ${describeTarget(this.world, target)}。`);
   }
 }

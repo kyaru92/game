@@ -40,16 +40,24 @@ export class ProjectileSystem {
     };
     projectile.remainingDistance = Math.max(0, Number(projectile.remainingDistance ?? 0) - travel);
 
-    const hit = findProjectileHit(this.world, entity, position, next);
-    if (hit) {
-      entity.components.position = hit.position;
-      this.impact(entity, hit.entity);
-      return;
-    }
+    // 延迟补偿：命中判定期间把目标回溯到发射时的客户端 tick 位置（若有历史）。
+    const fireTick = projectile.firedAtClientTick;
+    const history = fireTick != null ? this.world.positionHistory.get(fireTick) : undefined;
+    if (history) this.world.services.spatial.beginRewind(history);
+    try {
+      const hit = findProjectileHit(this.world, entity, position, next);
+      if (hit) {
+        entity.components.position = hit.position;
+        this.impact(entity, hit.entity);
+        return;
+      }
 
-    entity.components.position = next;
-    if (distanceToTarget <= moveDistance || projectile.remainingDistance <= 0 || !this.world.services.spatial.isInside(next.x, next.y)) {
-      this.impact(entity, undefined);
+      entity.components.position = next;
+      if (distanceToTarget <= moveDistance || projectile.remainingDistance <= 0 || !this.world.services.spatial.isInside(next.x, next.y)) {
+        this.impact(entity, undefined);
+      }
+    } finally {
+      if (history) this.world.services.spatial.endRewind();
     }
   }
 
@@ -61,7 +69,7 @@ export class ProjectileSystem {
       ? { kind: "entity", entityId: hitEntity.entityId }
       : { kind: "position", position: [position.x, position.y] };
     applyProjectilePayload(this.world, projectile, impactTarget, [position.x, position.y]);
-    this.world.services.vfx.addBurst(projectileEntity.entityId, String(projectile.color ?? "#f8fafc"));
+    this.world.emitSim({ type: "projectileImpact", x: position.x, y: position.y, color: String(projectile.color ?? "#f8fafc") });
 
     if (hitEntity && Number(projectile.pierce ?? 0) > 0) {
       projectile.pierce = Number(projectile.pierce) - 1;

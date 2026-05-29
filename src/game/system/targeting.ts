@@ -80,14 +80,15 @@ export function resolveAreaTargets(world: World, activationTarget: Target, radiu
   if (activationTarget.kind === "position" && activationTarget.position) {
     center = { x: activationTarget.position[0], y: activationTarget.position[1] };
   } else if (activationTarget.kind === "entity" && activationTarget.entityId) {
-    center = world.entities[activationTarget.entityId]?.components.position;
+    const targetEntity = world.entities[activationTarget.entityId];
+    center = targetEntity ? world.services.spatial.positionOf(targetEntity) : undefined;
   }
   if (!center) return [];
   const areaCenter = center;
 
   return Object.values(world.entities)
     .filter((entity) => {
-      const position = entity.components.position;
+      const position = world.services.spatial.positionOf(entity); // 延迟补偿：回溯时取历史位置
       if (!position || entity.components.projectile) return false;
       const distance = Math.hypot(position.x - areaCenter.x, position.y - areaCenter.y);
       return distance <= radius;

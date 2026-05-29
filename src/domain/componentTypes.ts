@@ -123,6 +123,8 @@ export interface ProjectileRuntimeComponent extends UnknownObject {
   payload: ProjectilePayload;
   hitEntityIds?: string[];
   lastUpdateMs?: number;
+  /** 发射时的客户端 tick，供服务端命中判定回溯目标历史位置（延迟补偿）。 */
+  firedAtClientTick?: number;
 }
 
 export interface AmmoComponent {

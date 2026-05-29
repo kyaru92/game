@@ -84,6 +84,7 @@ export function launchProjectile(world: World, options: ProjectileLaunchOptions)
         pierce: Number(projectileConfig.pierce ?? 0),
         color: options.color,
         payload,
+        firedAtClientTick: world.activeCommandClientTick ?? undefined,
       },
     },
   });
@@ -138,7 +139,7 @@ export function findProjectileHit(world: World, projectileEntity: Entity, from: 
   let best: { entity: Entity; position: { x: number; y: number }; distanceAlong: number } | undefined;
   for (const entity of Object.values(world.entities)) {
     if (ignored.has(entity.entityId) || entity.components.projectile) continue;
-    const position = entity.components.position;
+    const position = world.services.spatial.positionOf(entity); // 延迟补偿：回溯时取历史位置
     if (!position) continue;
     const hitRadius = world.services.spatial.entityRadius(entity) + Number(projectile.radius ?? 0.05);
     const segment = distanceToSegment(position.x, position.y, from, to);
@@ -202,7 +203,7 @@ function applyProjectileDamage(world: World, applier: DamageApplier, sourceEntit
 
 function applyProjectileEffect(world: World, applier: EffectApplier, sourceEntityId: string, sourceItemId: string | undefined, impactTarget: Target, impactPosition: [number, number]): void {
   const chance = Number(applier.chance ?? 1);
-  if (Math.random() > chance) return;
+  if (!world.rng.chance(chance)) return;
   const effectId = applier.kind;
   const targetMode = applier.target ?? "impact_target";
   const radius = Number(applier.radius ?? 0);

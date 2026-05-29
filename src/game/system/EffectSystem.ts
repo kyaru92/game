@@ -1,7 +1,7 @@
 import type { ActiveEffectLayer, ActiveEffectRuntime, EffectDefinition, EffectOverride } from "../../domain/componentTypes";
 import type { Entity, EventData } from "../types";
 import type { World } from "../world";
-import { effectColor, formatDuration } from "../utils";
+import { formatDuration } from "../utils";
 import { applyPeriodicChange, makeActiveEffect, makeLayer, refreshRuntime } from "./effectRuntime";
 
 type EffectBehavior = NonNullable<ActiveEffectRuntime["behavior"]>;
@@ -9,6 +9,11 @@ type EffectBehavior = NonNullable<ActiveEffectRuntime["behavior"]>;
 export class EffectSystem {
   constructor(private readonly world: World) {
     world.bus.subscribe("ApplyEffectRequest", (event) => this.onApplyEffectRequest(event));
+  }
+
+  private emitEffectApplied(target: Entity, effectId: string, name: string, withText: boolean): void {
+    const position = target.components.position ?? { x: 0, y: 0 };
+    this.world.emitSim({ type: "effectApplied", entityId: target.entityId, x: position.x, y: position.y, effectId, name, withText });
   }
 
   private onApplyEffectRequest(event: EventData<"ApplyEffectRequest">): void {
@@ -56,13 +61,12 @@ export class EffectSystem {
           this.world.log(`${target.name} 的 ${name} 已达最大层数 ${maxStacks}，刷新持续时间。`);
         }
         refreshRuntime(existing, durationMs, now);
-        this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+        this.emitEffectApplied(target, effectId, name, false);
         return;
       }
       effects[effectId] = makeActiveEffect(definition, behavior, 1, durationMs, now, sourceEntityId, sourceItemId);
       this.world.log(`${target.name} 获得效果：${name} x1，持续 ${formatDuration(durationMs)}。`);
-      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
-      this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
+      this.emitEffectApplied(target, effectId, name, true);
       return;
     }
 
@@ -83,13 +87,12 @@ export class EffectSystem {
         layers.push(makeLayer(definition, durationMs, now));
         existing.stacks = layers.length;
         this.world.log(`${target.name} 的 ${name} 新增独立层，目前 ${layers.length} 层。`);
-        this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+        this.emitEffectApplied(target, effectId, name, false);
         return;
       }
       effects[effectId] = makeActiveEffect(definition, behavior, 1, durationMs, now, sourceEntityId, sourceItemId);
       this.world.log(`${target.name} 获得效果：${name} x1，持续 ${formatDuration(durationMs)}。`);
-      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
-      this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
+      this.emitEffectApplied(target, effectId, name, true);
       return;
     }
 
@@ -104,14 +107,13 @@ export class EffectSystem {
       } else {
         this.world.log(`${target.name} 已有 ${name}，存续期间不允许再次施加。`);
       }
-      this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
+      this.emitEffectApplied(target, effectId, name, false);
       return;
     }
 
     effects[effectId] = makeActiveEffect(definition, "none", 1, durationMs, now, sourceEntityId, sourceItemId);
     this.world.log(`${target.name} 获得效果：${name}，持续 ${formatDuration(durationMs)}。`);
-    this.world.services.vfx.addBurst(target.entityId, effectColor(effectId));
-    this.world.services.vfx.addFloatingText(target.entityId, name, effectColor(effectId));
+    this.emitEffectApplied(target, effectId, name, true);
   }
 
   update(): void {
